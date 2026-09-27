@@ -11,3 +11,14 @@
 | [OpenCodeReview 知识库](project-docs/open-code-review/README.md) | 保存 OCR 使用与集成的工具知识及证据；涉及相关工作时，先读索引，再按需阅读子文档 | 获得新知识、核实版本变化或发现记录有误时更新，注明来源、版本和验证程度 |
 
 子文档索引及具体维护规则写在对应文档或索引中；文档移动或删除时，同步更新相关入口与链接。新增文档主题需由用户明确提出。
+
+<!-- CODEGRAPH_START -->
+## CodeGraph
+
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+
+- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"` prints the same output.
+
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+<!-- CODEGRAPH_END -->
