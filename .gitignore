@@ -45,3 +45,8 @@ bin/opencodereview
 # Python
 __pycache__/
 *.py[cod]
+
+
+# 二次开发个人
+skills-lock.json
+.agents/skills
