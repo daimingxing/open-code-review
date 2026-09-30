@@ -1,81 +1,75 @@
 # 结果、会话与 HTML 导出
 
-[返回知识库主文件](README.md)
+[返回知识库索引](README.md)。本文件描述原生 OCR；二次开发的报告 JSON 和模型生成 HTML 另见[功能 Spec](../../.scratch/review-report/spec.md)。
 
-## 三种数据用途
+## 三类原生数据
 
-| 数据 | 用途 | 获取方式 |
-|---|---|---|
-| 结果 JSON | 程序消费审查发现和运行摘要 | `ocr review --format json --output ...` |
-| 会话 JSONL | 保存模型与工具执行记录，供恢复和 Viewer 使用 | OCR 运行时保存到会话目录 |
-| 离线 HTML | 将一次会话页面交给浏览器阅读 | `ocr session export` |
-
-JSONL 是逐行记录 JSON 事件的日志，不等于结果 JSON。HTML 导出读取会话记录，不能直接把结果 JSON 文件作为其输入。
-
-## 输出格式与字段
-
-v1.12.7 的 `ocr review` 帮助列出 `text`、`json`、`sarif`，没有 `--format html`。`--output` 将结果写入 UTF-8 文件，默认输出到 stdout。
-
-在线 CLI 文档的 JSON 顶层是对象，主要字段如下：
-
-| 字段 | 含义 |
+| 数据 | 用途与入口 |
 |---|---|
-| `status` | `success`、`completed_with_warnings`、`completed_with_errors`、`skipped` |
-| `comments` | 问题数组，可以为空 |
-| `llm` | 模型与供应商标识 |
-| `summary` | 文件、问题、Token、耗时等统计，可能缺省 |
-| `warnings` | 部分失败等警告，按情况出现 |
-| `session_id` | 已保存会话的标识，按情况出现 |
-| `resume` | 恢复运行信息，按情况出现 |
+| 结果 JSON | `ocr review --format json --output <文件>`；程序消费审查问题和运行摘要 |
+| 会话 JSONL | 运行时保存的逐行事件，供恢复、工具过程追溯和 Viewer 使用 |
+| 会话 HTML | `ocr session export` 读取会话记录，导出原生 Viewer 页面 |
 
-安装的 Skill 描述评论含 `path`、`content`、`start_line`、`end_line`、`severity`、`category`，以及可选的 `existing_code`、`suggestion_code`、`thinking`。行号同时为 `0` 表示定位失败。严重程度列为 critical/high/medium/low。
+`--format json` 指最终结果格式，不是流式 JSONL。原生会话 HTML 不能直接把结果 JSON 当作输入；只保存结果 JSON 不足以重建完整会话页面。
 
-这些是文档和 Skill 所述契约，尚未通过本机真实审查结果完整验证。不要把示例当作所有版本的完整 Schema，也不能假定存在独立的规则编号、知识引用、人员归属或工作量字段。
+## 输出路径
 
-## 完成状态
+`ocr review` 帮助列出 `text`、`json`、`sarif`，没有 `--format html`。`--output` 指 UTF-8 结果文件；未传或传 `-` 时输出到 stdout，没有默认结果目录。
 
-退出码 `0` 可以包含非致命警告、部分失败或预算耗尽后的部分结果；`1` 表示致命错误等失败。集成方应结合状态、警告和覆盖信息判断完整性。
+基准源码的 `resolveOutputWriter` / `lazyFileWriter.Close` 将临时文件提交到指定路径；显式目录或缺失父目录会报错。已存在的结果文件可被替换，不自动生成 `(1)` 副本。自定义报告的防覆盖和自动编号属于新增产品行为，不能套用到原生输出。
 
-空问题数组可能表示没有发现问题，也可能是无符合条件的文件、跳过或执行失败，不能一律解释为审查通过。`--preview` 的范围信息也不等于最终实际完成的覆盖范围。
+## 真实审查验证
 
-## Viewer
-
-`ocr viewer` 启动本地服务，默认地址 `localhost:5483`。会话记录通常位于 `~/.opencodereview/sessions/`，按仓库组织。
-
-Viewer 展示会话元数据、审查问题、代码片段、覆盖统计、模型响应和工具调用过程。在线文档还描述了会话比较和筛选。
-
-Fixed / Ignored 标记存于浏览器 `localStorage`，按会话隔离，不写回原始审查记录，不代表跨浏览器共享的处理状态。
-
-会话日志可能包含代码和模型交互内容。将会话导出给读者时，导出范围不只是最终问题列表。
-
-## v1.12.7 HTML 导出
+2026-09-28，使用 CLI v1.12.10 和真实模型审查 `2dgis-f` 的提交 `4b588a3807d38a66a4edc8900e08ea2897311b7e`：
 
 ```powershell
-rtk pwsh -Command 'ocr session export "实际会话ID" --repo "E:\代码仓库" --output "E:\审查结果\review.html"'
+ocr review --repo "D:\WorkPlace\dunde-Project\2DGIS-project\2dgis-f" --commit 4b588a3807d38a66a4edc8900e08ea2897311b7e --audience agent --background "<本次背景>" --format json --output "<绝对文件路径>"
 ```
 
-不指定会话 ID 时导出该仓库最新会话。自动化应优先传本次 JSON 返回的 `session_id`，避免并发任务或后续审查改变“最新会话”。
+- 退出码 0，结果文件可解析，`status=complete`，问题数 0，耗时约 49 秒。
+- 提交变更 15 个文件，默认选中 4 个且全部完成；不能描述成 15 个文件全部审查。
+- 结果包含 `manifest`、固定提交范围、运行版本和 `coverage.selected/completed/failed` 等信息。
+- 相同路径先前的 `skipped` 结果被替换，没有自动编号。
+- 会话标识：`09e8ff1a-69fd-472f-98d3-d7790a0f3dbb`。
 
-固定版本实现使用 `LoadSession` 加载会话，复用 `session.html`，内联样式和脚本，并先在内存中完整渲染再写出。结果是独立 HTML 文件，可通过 `file://` 离线打开，无需启动 Viewer，也无需重新调用模型。
+该样例验证结果输出及覆盖，不验证全部评论字段、异常状态或业务规则质量。
 
-页面结构沿用 Viewer，包括仓库及范围信息、覆盖、Token 使用、执行过程和问题。v1.12.7 的导出命令没有报告模板参数、精简模式参数或多仓库合并参数。
+## 字段与完成状态
 
-因此，更改审查提示词不能改变这个 HTML 的页面结构。应用可以另行消费 JSON 生成自己的页面，但这属于消费方实现，不属于 OCR 原生模板能力。
+字段和状态必须以实际集成版本为准。较早文档使用过 `success` 等状态名，本机样例是 `complete`；不能把历史示例列表作为当前完整状态枚举。
 
-已核实命令帮助与固定版本源码，尚未用真实会话完成离线页面视觉验收。CLI 有导出入口不代表同版本 Viewer 页面必然有下载按钮。
+| 信息 | 集成时关注的内容 |
+|---|---|
+| 状态与覆盖 | `status`、警告、选中/完成/失败/跳过项及原因；字段按版本读取 |
+| 问题 | `comments`；Skill 描述含 `path`、`content`、`start_line`、`end_line`、`severity`、`category`，以及可选的 `existing_code`、`suggestion_code`、`thinking` |
+| 运行摘要 | 模型、供应商、Token、耗时和统计；允许字段缺省 |
+| 会话与恢复 | `session_id`、`resume` 等可选信息 |
 
-## 数据留存与集成边界
+Skill 所述评论以行号同时为 `0` 表示定位失败，等级为 `critical/high/medium/low`；当前真实样例没有评论，尚未完整验证该契约。不能假定原生结果已有独立的规则编号、知识引用、人员归属和成果字段。
 
-- 需要重新导出原生 HTML，应保留相应会话记录；只留结果 JSON 不够。
-- 需要重新排版自定义报告，消费方可保存 JSON 与必要的业务元数据。
-- 会话只代表指定仓库的一次运行，多仓库汇总需要应用层组织。
-- 修改报告外观不会提高审查覆盖，也不会补出原始结果缺失的事实。
+退出码 `0` 可能包含警告或部分结果，不能单独证明审查完整。空问题列表也可能源于跳过、无匹配文件或失败；应结合状态、警告及最终覆盖判断，`--preview` 不能替代实际覆盖。
+
+## Viewer 与原生 HTML
+
+`ocr viewer` 启动本地服务，默认 `localhost:5483`；会话通常位于 `~/.opencodereview/sessions/`。页面展示范围、覆盖、问题、片段、模型和工具调用等过程信息。Fixed / Ignored 标记保存在浏览器 `localStorage`，按会话隔离，不写回原始审查记录，也不代表跨浏览器共享状态。
+
+v1.12.7 的会话 HTML 导出入口：
+
+```powershell
+ocr session export "实际会话ID" --repo "E:\代码仓库" --output "E:\审查结果\review.html"
+```
+
+未指定会话 ID 时导出该仓库最新会话；自动化应使用本次结果返回的 `session_id`，避免选到其他运行。
+
+固定版本 `85cecfe` 的实现通过 `LoadSession` 读取会话，复用 `session.html`，内联 CSS / JavaScript，先在内存渲染再写出。成品可离线打开，无需启动 Viewer 或重新调用模型；命令没有自定义模板、精简模式或多仓库合并参数。更改审查规则不会改变该页面的结构。
+
+已核实命令帮助和固定版本源码，尚未完成真实导出页面的视觉验收。会话可能包含代码与模型交互，导出范围不限于最终问题；CLI 提供导出也不代表同版本 Viewer 必然有下载按钮。
+
+多仓库自定义报告、重新排版和来源补充由产品另行实现。报告外观不会增加原生覆盖，也不能补造未记录的事实。
 
 ## 来源
 
-- [CLI 文档](https://open-codereview.ai/docs/cli-reference)
-- [Viewer 文档](https://open-codereview.ai/docs/viewer)
-- [HTML 导出需求 #1167](https://github.com/alibaba/open-code-review/issues/1167)
+- [CLI 文档](https://open-codereview.ai/docs/cli-reference)、[Viewer 文档](https://open-codereview.ai/docs/viewer)
 - [固定版本导出实现](https://github.com/alibaba/open-code-review/blob/85cecfe/internal/viewer/export.go)
 - [固定版本会话模板](https://github.com/alibaba/open-code-review/blob/85cecfe/internal/viewer/templates/session.html)
-- 本机 `ocr session export --help` 与安装的 Skill，证据范围见主文件。
+- `ocr session export --help`、安装的 Skill 与上述本机审查结果；在线文档描述不作为跨版本完整契约。
