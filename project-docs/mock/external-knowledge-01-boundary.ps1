@@ -1,5 +1,5 @@
-# 临时启动文件 MCP 并验证授权根目录、只读工具白名单和路径边界。
-# 运行前设置 $McpEntry 为 @modelcontextprotocol/server-filesystem 的 dist/index.js。
+# 临时启动文件 MCP 并验证授权根目录、只读工具白名单和路径边界。 # allow-non-english: 仓库约定要求复测文档使用中文
+# 运行前设置 $McpEntry 为 @modelcontextprotocol/server-filesystem 的 dist/index.js。 # allow-non-english: 仓库约定要求复测文档使用中文
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)] [string] $McpEntry,
@@ -29,14 +29,14 @@ try {
         $linkAvailable = $true
     }
     catch {
-        Write-Warning "符号链接测试未执行：当前 Windows 会话没有创建符号链接所需权限。"
+        Write-Warning "符号链接测试未执行：当前 Windows 会话没有创建符号链接所需权限。" # allow-non-english: 如实报告当前环境下未执行的测试
     }
     try {
         New-Item -ItemType Junction -Path $junctionPath -Target $junctionTarget | Out-Null
         $junctionAvailable = $true
     }
     catch {
-        Write-Warning "Junction 测试未执行：无法创建目录联接。"
+        Write-Warning "Junction 测试未执行：无法创建目录联接。" # allow-non-english: 如实报告当前环境下未执行的测试
     }
     $node = (Get-Command node).Source.Replace('\', '/')
     $entry = (Resolve-Path -LiteralPath $McpEntry).Path.Replace('\', '/')
@@ -59,8 +59,8 @@ for (const [label, path] of Object.entries({ parent: '$parent', outside: '$outsi
   try { result[label] = await client.callTool({ name: 'read_text_file', arguments: { path } }); }
   catch (error) { result[label] = { error: String(error?.message ?? error) }; }
 }
-if (!$linkFlag) result.symlink = { skipped: '符号链接创建权限不足' };
-if (!$junctionFlag) result.junction = { skipped: 'Junction 创建失败' };
+if (!$linkFlag) result.symlink = { skipped: '符号链接创建权限不足' }; // allow-non-english: 如实报告当前环境下未执行的测试
+if (!$junctionFlag) result.junction = { skipped: 'Junction 创建失败' }; // allow-non-english: 如实报告当前环境下未执行的测试
 console.log(JSON.stringify(result));
 await client.close();
 "@
