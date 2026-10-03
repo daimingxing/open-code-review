@@ -16,8 +16,14 @@ if (-not $testPath.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase))
 
 $linkPath = Join-Path $testPath '__external-knowledge-boundary-link'
 $linkAvailable = $false
+$junctionPath = Join-Path $testPath '__external-knowledge-boundary-junction'
+$junctionTarget = Join-Path (Split-Path -Parent $testPath) ("__ocr-junction-target-" + [guid]::NewGuid().ToString('N'))
+$junctionAvailable = $false
 try {
     New-Item -ItemType Directory -Path $testPath -Force | Out-Null
+    New-Item -ItemType Directory -Path $junctionTarget | Out-Null
+    $junctionFile = Join-Path $junctionTarget 'junction-outside.md'
+    Set-Content -LiteralPath $junctionFile -Value 'junction boundary probe' -NoNewline
     try {
         New-Item -ItemType SymbolicLink -Path $linkPath -Target $OutsideFile | Out-Null
         $linkAvailable = $true
@@ -25,13 +31,22 @@ try {
     catch {
         Write-Warning "符号链接测试未执行：当前 Windows 会话没有创建符号链接所需权限。"
     }
+    try {
+        New-Item -ItemType Junction -Path $junctionPath -Target $junctionTarget | Out-Null
+        $junctionAvailable = $true
+    }
+    catch {
+        Write-Warning "Junction 测试未执行：无法创建目录联接。"
+    }
     $node = (Get-Command node).Source.Replace('\', '/')
     $entry = (Resolve-Path -LiteralPath $McpEntry).Path.Replace('\', '/')
     $root = (Resolve-Path -LiteralPath $testPath).Path.Replace('\', '/')
     $parent = (Resolve-Path -LiteralPath (Join-Path $testPath '..')).Path.Replace('\', '/')
     $outside = (Resolve-Path -LiteralPath $OutsideFile).Path.Replace('\', '/')
     $link = $linkPath.Replace('\', '/')
+    $junctionFilePath = (Join-Path $junctionPath 'junction-outside.md').Replace('\', '/')
     $linkFlag = if ($linkAvailable) { 'true' } else { 'false' }
+    $junctionFlag = if ($junctionAvailable) { 'true' } else { 'false' }
     $script = @"
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -40,11 +55,12 @@ const client = new Client({ name: 'external-knowledge-boundary', version: '1.0.0
 await client.connect(transport);
 const result = { tools: (await client.listTools()).tools.map(tool => tool.name) };
 result.allowed = await client.callTool({ name: 'list_allowed_directories', arguments: {} });
-for (const [label, path] of Object.entries({ parent: '$parent', outside: '$outside', symlink: '$link' })) {
+for (const [label, path] of Object.entries({ parent: '$parent', outside: '$outside', symlink: '$link', junction: '$junctionFilePath' })) {
   try { result[label] = await client.callTool({ name: 'read_text_file', arguments: { path } }); }
   catch (error) { result[label] = { error: String(error?.message ?? error) }; }
 }
 if (!$linkFlag) result.symlink = { skipped: '符号链接创建权限不足' };
+if (!$junctionFlag) result.junction = { skipped: 'Junction 创建失败' };
 console.log(JSON.stringify(result));
 await client.close();
 "@
@@ -57,5 +73,13 @@ await client.close();
     }
 }
 finally {
-    Remove-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
+    if ($linkAvailable -and (Test-Path -LiteralPath $linkPath)) {
+        [IO.File]::Delete($linkPath)
+    }
+    if ($junctionAvailable -and (Test-Path -LiteralPath $junctionPath)) {
+        [IO.Directory]::Delete($junctionPath)
+    }
+    if (Test-Path -LiteralPath $junctionTarget) {
+        [IO.Directory]::Delete($junctionTarget, $true)
+    }
 }

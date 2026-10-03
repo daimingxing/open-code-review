@@ -35,7 +35,8 @@
 
 | 主题 | 文件 | 状态 |
 |---|---|---|
-| 文件 MCP 路径边界、符号链接与工具白名单 | [external-knowledge-01-boundary.ps1](external-knowledge-01-boundary.ps1) | 部分验证（父目录/根外拒绝通过；符号链接受权限限制，2026-10-04） |
+| 文件 MCP 路径边界、符号链接与工具白名单 | [external-knowledge-01-boundary.ps1](external-knowledge-01-boundary.ps1)、[external-knowledge-01-linux-symlink.ps1](external-knowledge-01-linux-symlink.ps1) | 已验证（Linux 真符号链接、Windows Junction；Windows 普通文件符号链接权限不足，2026-10-04） |
+| 文件 MCP 缺失与部分正文响应 | [external-knowledge-01-content.ps1](external-knowledge-01-content.ps1) | 已验证 filesystem 2026.8.31 工具响应；OCR/模型语义见复测记录 |
 | 前端隔离配置模板 | [external-knowledge-01-config.frontend.json](external-knowledge-01-config.frontend.json) | 可复用模板，路径需按环境替换 |
 | 后端隔离配置模板 | [external-knowledge-01-config.backend.json](external-knowledge-01-config.backend.json) | 可复用模板，路径需按环境替换 |
 | 前端原生规则样例 | [external-knowledge-01-rule.frontend.json](external-knowledge-01-rule.frontend.json) | 真实模型已验证误报排除及知识读取 |

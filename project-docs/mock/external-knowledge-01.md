@@ -42,7 +42,39 @@ Set-Content -LiteralPath $outsideFile -Value 'boundary probe' -NoNewline
 Remove-Item -LiteralPath $outsideFile -Force
 ```
 
-通过条件：`list_allowed_directories` 只列出测试根；父目录和根外文件读取返回 `Access denied`；若当前 Windows 权限允许创建符号链接，指向根外文件的链接也必须拒绝。此脚本连接 MCP 服务端，因此服务端 `listTools` 会展示它实现的全部工具；是否只向模型提供只读能力须另核对 OCR 会话中实际调用工具名与隔离配置白名单。
+通过条件：`list_allowed_directories` 只列出测试根；父目录和根外文件读取返回 `Access denied`；指向授权根外目标的文件符号链接或目录 Junction 也必须拒绝。此脚本连接 MCP 服务端，因此服务端 `listTools` 会展示它实现的全部工具；是否只向模型提供只读能力须另核对 OCR 会话中实际调用工具名与隔离配置白名单。Windows 的 Junction 是目录联接，不等同于文件符号链接，需分别记录。
+
+Linux 真符号链接复测使用 [external-knowledge-01-linux-symlink.ps1](external-knowledge-01-linux-symlink.ps1)，前提是 PowerShell 7、Podman machine、网络可访问 Alpine package repository 与 npm registry。脚本启动 `docker.io/library/alpine:3.20`，用 `apk` 安装 Node.js/npm，通过 `npx` 获取 `@modelcontextprotocol/server-filesystem@2026.8.31`，在容器中建立 `/tmp/allowed/escape -> /tmp/outside` 并请求读取链接下的文件。2026-10-04 实测返回 `isError: true`，正文 `Access denied - symlink target outside allowed directories: /tmp/outside/secret.md not in /tmp/allowed`。Windows 当前会话创建普通文件符号链接提示需要管理员权限，仍未在 Windows 本机验证；Linux 真实符号链接和 Windows Junction 分别验证，不互相替代。测试容器使用 `--rm`，退出后移除；主线程在测试后停止 Podman machine。
+
+### 缺失文档与部分正文探针
+
+下列命令使用真实 filesystem MCP，但仅处理临时目录中的探针文件，不调用模型：
+
+```powershell
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) 'ocr-knowledge-content'
+& .\project-docs\mock\external-knowledge-01-content.ps1 `
+  -McpEntry $mcpEntry `
+  -TestRoot (Join-Path $tempRoot 'authorized-root')
+```
+
+2026-10-04，Node.js v22.22.2、`@modelcontextprotocol/server-filesystem` 2026.8.31 实测：授权列表只含探针根；读取不存在的 `missing.md` 返回 `isError: true` 和 `ENOENT`；`read_text_file` 对三行 `partial.md` 指定 `head: 1` 时仅返回 `evidence-first`，不返回后两行，也没有声称内容完整的元数据。脚本在 `finally` 中删除探针正文文件。
+
+再用临时隔离 OCR 用户目录配置同一只读知识 MCP、临时 Git 仓库和缺失/部分正文索引，执行真实模型审查：
+
+```powershell
+$env:USERPROFILE = $isolatedHome
+ocr review --repo $fixtureRepo --rule $rulePath --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'failure-missing-partial-60k.json') --timeout 10 --max-tokens-budget 60000
+```
+
+2026-10-04 实际退出码为 0，OCR 状态 `complete`，10 次调用。工具调用记录含索引读取、缺失章节的 `ENOENT` 响应，以及仅 `head: 1` 的部分章节读取。模型明确说缺失章节未读、只取得部分正文，不能声称了解缺失章节或已核验完整知识；结论限于已读证据。这里的 `complete` 仅表示本次代码审查覆盖完成，不表示知识读取完整。
+
+### MCP 服务不可用
+
+在隔离配置中把 MCP 命令改成不存在的临时可执行文件（不得改全局配置），再执行相同临时仓库的真实模型审查。2026-10-04 OCR v1.12.11 输出原始警告 `failed to start MCP server "knowledge"` / `The system cannot find the file specified`，并继续审查；OCR manifest 仍为 `complete`，6 次工具调用中 1 次原生 `file_read` 失败，失败原因保留在 `failure_details`。DeepSeek 模型说明 MCP 不可用、索引/章节均未读，随后原生 `file_read` 也因路径不在仓库授权范围失败；没有声称读过知识，结论仅根据临时仓库实际代码。该结果同样说明 `complete` 不是知识验收状态。
+
+### 小型 Markdown 直接注入
+
+原生 `--rule` 规则字段可直接承载小型 Markdown 正文，无需知识服务或新规则协议。以临时规则 JSON 关联 `src/probe.js` 并执行 `ocr rules check --repo . --rule $scratchRule src/probe.js`，2026-10-04 输出 `Source: Custom (--rule)`，并逐行显示正文中的 `# 隔离验收知识`、`getMappedRows` 版本说明和限制语句。探针规则 JSON 位于系统临时目录并在命令结束时删除。此方式适合短而稳定的知识；较大知识仍用规则关联索引和文件 MCP 按需读取。
 
 ## 实际结果与限制
 
@@ -53,8 +85,10 @@ Remove-Item -LiteralPath $outsideFile -Force
 | 后端首次运行行为 | 首次规则虽要求读取知识，但 16 次调用仅为原生代码搜索/读取/评论工具，没有知识 MCP 调用；输出 complete 但只报告风格意见。隔离 MCP 配置正确且白名单非空。将规则强化为“在分析前必须成功调用 MCP 列目录、读索引和章节；读取失败须诚实说明”后，第二次运行实际调用知识 MCP 并产生知识依赖结论。故当前复测规则保留该明确顺序；首次结果仍作为模型遵循原规则不充分的证据。 |
 | 只读能力 | 通过：前后端真实审查的实际调用均为 OCR 原生读取/检索/评论工具及 MCP 的 `list_allowed_directories`、`list_directory`、`read_text_file`；没有 MCP 写工具调用，隔离配置白名单仅含五个只读工具。filesystem 服务端 `listTools` 本身仍列有写工具，因此应以 OCR 配置白名单和会话实际调用共同判定模型权限。 |
 | 父目录与根外路径 | 通过：filesystem 2026.8.31 对两种 `read_text_file` 请求均返回 `Access denied`；唯一授权目录是测试根。 |
-| 符号链接越界 | 未验收：Windows 会话创建符号链接返回需 Administrator privilege；脚本保留为可在有权限环境重跑的检查，不把跳过当通过。 |
-| 缺失/不可用/部分正文与 Markdown 直接注入后备 | 未运行：本轮真实模型与边界验收未覆盖这些失败场景，不标记通过。 |
+| 符号链接越界 | 通过：Podman Alpine 3.20 中创建真实目录符号链接，filesystem 2026.8.31 返回 `isError: true` 和 `Access denied - symlink target outside allowed directories: /tmp/outside/secret.md not in /tmp/allowed`。Windows 当前会话创建普通文件符号链接提示需要管理员权限，故 Windows 本机该能力未验；Windows Junction 已另行成功创建且越界读取拒绝。 |
+| 文档缺失与部分正文 | 真实 filesystem MCP 返回缺失文件 `ENOENT` 与 `isError: true`；`head: 1` 仅返回首行。DeepSeek 真实模型根据这两种响应明确说明知识缺失/不完整，没有声称已读或完整核验；审查 `complete` 仅指代码文件覆盖。 |
+| MCP 服务不可用 | OCR 发出 MCP 启动失败原始警告并继续审查；模型明确未读知识且引用失败证据，没有伪称知识结论。输出状态 `complete` 仍仅为代码覆盖状态。 |
+| 小型 Markdown 直接注入 | 原生规则检查输出临时规则中的多行 Markdown 正文，确认文字直接注入规则内容；无需 MCP。 |
 | 历史提交读取 | 通过：两个 OCR manifest 均为 `mode=commit`，实际解析到上述完整提交范围，而不是读取工作树快照。 |
 
 ## 2026-10-04 执行命令补充

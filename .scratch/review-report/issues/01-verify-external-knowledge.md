@@ -16,14 +16,14 @@ Blocked by: 无，可立即开始
 
 - [x] 提供可复现的隔离配置与前后端样例；规则声明独立知识索引，业务背景沿用原生入口，不新增规则协议或知识命令参数。
 - [x] 真实模型样例分别覆盖必须依靠框架知识才能判断的问题、应排除的误报；核验索引与章节读取记录、版本、代码证据和结论，记录模型与服务版本，不用替身结果代替效果验收。
-- [ ] 使用现成文件 MCP 的授权根目录及非空只读工具白名单；验证目录外、父目录与符号链接越界拒绝，模型不获得写工具；历史代码仍按目标提交读取。
-- [ ] 文档缺失、服务不可用、只返回部分正文时不伪造已读或全部完成，保留有证据的结果并说明限制；验证小型 Markdown 直接注入的后备方式。
+- [x] 使用现成文件 MCP 的授权根目录及非空只读工具白名单；验证目录外、父目录与符号链接越界拒绝，模型不获得写工具；历史代码仍按目标提交读取。（Linux 真实目录符号链接及 Windows Junction 分别实测拒绝；Windows 本机普通文件符号链接因权限限制未验证。）
+- [x] 文档缺失、服务不可用、只返回部分正文时不伪造已读或全部完成，保留有证据的结果并说明限制；验证小型 Markdown 直接注入的后备方式。
 - [x] 将配置方式、预期结果和复测方法保存为可复用验收资料。只有基础接入确有缺口时才评估最小改动，不把本工单扩大为开发新的 MCP 服务。
 
 ## 执行记录（2026-10-04）
 
 - 执行者：Codex 实施智能体。
-- 工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-01`；分支：`codex/review-report-01-knowledge`；基线：`d50f4dc2502edc510e2673b495ad4ac99871eedb`（`feature-review-report`）；复测资料及验收记录的实施提交：`877b0ae3f49bc53d8bebac6ecc0e14920811b3c9`。
+- 工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-01`；分支：`codex/review-report-01-knowledge`；基线：`d50f4dc2502edc510e2673b495ad4ac99871eedb`（`feature-review-report`）；复测资料及验收记录的实施提交：`877b0ae3f49bc53d8bebac6ecc0e14920811b3c9`、`d4bf93ba052dc851fd72e4380d4033cd0446d2c7`。
 - 环境：Windows 11、PowerShell 7、OCR v1.12.11（a758d9c）、Node.js v22.22.2、filesystem MCP 2026.8.31、DeepSeek `deepseek-flash`。真实仓库及 `.ai_knowledge` 只读使用，未改其文件、忽略配置或未提交内容；未读取或输出全局配置中的凭据。
 - 隔离：在系统临时目录安装 filesystem MCP，并将全局 OCR 配置复制到临时隔离用户目录；只向该副本添加 `knowledge` MCP。每次真实审查的授权根目录为对应真实仓库的 `.ai_knowledge`，白名单为 `read_text_file`、`list_directory`、`search_files`、`get_file_info`、`list_allowed_directories`。全局配置未改。详见[复测命令与实际结果](../../../project-docs/mock/external-knowledge-01.md)、前后端 MCP 模板和规则样例。
 
@@ -37,9 +37,9 @@ Blocked by: 无，可立即开始
 ### 边界、未运行项与限制
 
 - 文件 MCP 边界脚本在临时目录实际运行。`list_allowed_directories` 仅返回测试根；父目录和根外普通文件读取均返回 `Access denied`。MCP 服务端自身列举了写工具，但隔离 OCR 配置白名单仅五项只读工具，两个真实会话未调用 MCP 写工具。真实模型仅获得了知识目录工具，没有授权工作区目录或写操作。
-- 符号链接越界未验收：Windows 当前会话创建符号链接提示需要 Administrator privilege，脚本报告跳过；因此第三条验收仍未勾选。可在允许创建符号链接的 Windows 环境重跑 `project-docs/mock/external-knowledge-01-boundary.ps1`。
-- 缺失文档、服务不可用、部分正文以及小型 Markdown 直接注入后备未运行；第四条验收保持未勾选，不能视为通过。
-- 已运行：两种真实模型审查（后端第一次未读取、第二次成功读取）、MCP 父目录/根外路径检查、目标提交 manifest 核验、JSON 解析、`git diff --check` 和 OCR 预览。完整 OCR 自审因 120,000 token 预算的预检估算为 121,265 tokens 而未派发；提高到 180,000 的重试没有产出结果文件，未将其计作通过。未运行：Go 源码测试（本工单没有产品代码改动，且当前环境的 Go 下载/CGO 条件受阻）、上述三类知识失败语义及 Markdown 后备、符号链接检查。
+- 边界复测：父目录与根外普通文件读取均被拒绝，`list_allowed_directories` 仅返回隔离测试根；授权目录下只读 MCP 白名单非空，真实模型会话未调用写工具。Linux Alpine 3.20 容器中创建真实目录符号链接，MCP 拒绝读取并返回 `Access denied - symlink target outside allowed directories: /tmp/outside/secret.md not in /tmp/allowed`；Windows Junction 也拒绝越界读取。Windows 本机普通文件符号链接因当前权限不足未验证，两种平台测试分别记录于复测说明。
+- 失败语义与后备：真实 filesystem MCP 对不存在文档返回 `ENOENT`，对 `head: 1` 返回部分正文；DeepSeek 真实模型明确说明缺失/部分知识且没有声称已完整阅读。将隔离 MCP 命令改为不存在的可执行文件后，OCR 原始警告记录服务启动失败并继续审查，模型说明索引/章节未读，输出仍为 `complete` 但只代表代码覆盖；另用原生 `ocr rules check` 验证短 Markdown 正文直接进入自定义规则。
+- 已运行：前后端真实模型审查（后端第一次未读取、定向重试成功读取）、MCP 父目录/根外/Junction 检查、缺失/部分正文工具探针、缺失/部分正文与服务不可用真实模型检查、Markdown 直接注入、目标提交 manifest 核验、JSON 解析、`git diff --check` 和 OCR 预览。完整 OCR 自审因预算预检估算超限未派发，记为未验证而非失败或通过。Go 源码测试不属于本工单改动范围；主线程基线 `go test ./...` 的 5,057 项通过，`make test` race 路径因缺少 gcc/CGO 未运行成功；Go 下载阻塞的旧记录已更正。
 - 实际第二次后端读取证明，明确的先读知识规则能让当前服务/模型调用读取知识；首次未读取则说明仅说“按需读取”不足以保证行为。后续接入应保留明确读取要求，并把失败/部分读取状态如实呈现。未发现需要在本工单新增 MCP 服务或产品代码的基础接入缺口。
 - 清理：真实样例仓库未被写入，现有未提交文件保持原状。执行策略拒绝了递归删除整棵临时隔离目录的尝试；随后按系统临时目录路径校验，精确删除了含继承凭据的隔离 `config.json`，确认文件不存在。依照交接要求，其他临时目录内容保留；提交中不包含临时日志或密钥。
 
