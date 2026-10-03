@@ -19,6 +19,7 @@ func parseReviewFlags(args []string) (reviewOptions, error) {
 	var opts reviewOptions
 	cmd := &cobra.Command{
 		Use:           "review",
+		Args:          reviewArgsValidator(&opts),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
