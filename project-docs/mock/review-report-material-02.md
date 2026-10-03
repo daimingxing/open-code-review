@@ -1,6 +1,6 @@
 # 工单 02：审查报告材料
 
-日期：2026-10-04。源码提交：待实现提交生成后补录。验证对象为 `feature-review-report` 上包含该源码提交的版本。
+日期：2026-10-04。源码提交：`c9f1b70a39c7d0312d7822f16e7a9d2eb9fc9f26`。验证对象为 `feature-review-report` 上包含该源码提交的版本。
 
 ## 目的与前提
 
@@ -16,7 +16,7 @@
 $ErrorActionPreference = 'Stop'
 Set-Location 'D:\WorkPlace\open-code-review'
 git switch feature-review-report
-$sourceCommit = '待实现提交生成后补录'
+$sourceCommit = 'c9f1b70a39c7d0312d7822f16e7a9d2eb9fc9f26'
 git merge-base --is-ancestor $sourceCommit HEAD
 if ($LASTEXITCODE -ne 0) { throw '集成分支不包含工单 02 源码提交' }
 go version
@@ -60,7 +60,7 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 
 ## 验证记录
 
-2026-10-04，Windows 11、PowerShell 7、Go 1.25.14：聚焦 `internal/report` 与 `cmd/opencodereview` 测试退出码 0；OCR finding 回归测试退出码 0；完整 `go test ./... -count=1` 退出码 0。合并 `e229220` 后 `make check` 退出码 0，license 检查通过，659 个扫描源文件无未豁免文本，`go mod tidy`、全仓 gofmt 与 go vet 通过。源码 SHA 在工单提交后补录。
+2026-10-04，Windows 11、PowerShell 7、Go 1.25.14：聚焦 `internal/report` 与 `cmd/opencodereview` 测试退出码 0；OCR finding 回归测试退出码 0；完整 `go test ./... -count=1` 退出码 0。合并 `e229220` 后 `make check` 退出码 0，license 检查通过，659 个扫描源文件无未豁免文本，`go mod tidy`、全仓 gofmt 与 go vet 通过。源码 SHA 为 `c9f1b70a39c7d0312d7822f16e7a9d2eb9fc9f26`；本次验证发生在该源码内容提交前，之后只增加了上述两项已单独通过的回归测试与记录文档。
 
 同日 `make test` 在默认 `CGO_ENABLED=0` 下因 race 检测要求 CGO 而失败；设为 `CGO_ENABLED=1` 后因当前 `PATH` 没有 `gcc` 而构建失败。因此本机未验证 race 测试。`go test ./... -count=1` 不启用 race，单独记录为普通测试结果。
 

@@ -22,7 +22,7 @@ Blocked by: [01：验收外部知识的选读与实际应用](01-verify-external
 
 ## 执行记录（2026-10-04）
 
-- 执行者：Codex 实施智能体。工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-02`；分支：`codex/review-report-02-material`；初始基线：`8c9188a`；开发前合入 `feature-review-report` 的 `4f37ebf` 与最新 `e229220`，保留 merge 历史。源码提交和记录提交将在本节补入完整 SHA。
+- 执行者：Codex 实施智能体。工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-02`；分支：`codex/review-report-02-material`；初始基线：`8c9188a`；开发前合入 `feature-review-report` 的 `4f37ebf` 与最新 `e229220`，保留 merge 历史。源码提交：`c9f1b70a39c7d0312d7822f16e7a9d2eb9fc9f26`（`feat(report): add standalone review material`）。
 - 交付契约：`internal/report/material.go` 定义 `Material` v1 与共享 `Scope`、`Finding`、`Coverage`、六类固定 `Section` 和 `Limitation{source,status,reason}`。原生 manifest 与 findings 是身份、范围、问题和覆盖的事实来源；缺失字段和每个报告分区分别明确区分 `not_collected`、`not_applicable`、`failed` 并带原因。03–05 只需基于各自真实证据填充相应 `Section.Data`/状态和补充限制，不改变 `Finding.SourceContent`、原生身份或解析后的范围事实。
 - 缺失项：单提交原生数据不含 Git 统计、工作区快照、成果、人员、实际知识读取来源和结构检查时，报告材料标记为 `not_collected` 或按模式标记 `not_applicable`，没有伪造数据；覆盖失败、跳过、工具失败、仓库/输入摘要缺失、代码证据与建议缺失均进入限制列表。运行或模型服务的真实验收不由本工单替代。
 - 文件系统边界：常见支持硬链接的文件系统使用同目录临时文件硬链接原子发布；硬链接不支持时回退到 `O_EXCL` 独占创建和复制，仍拒绝覆盖，但非原子，写入失败可能留下部分文件。实现不会按路径删除失败目标，以免竞态删除并发替换文件；复测记录说明后续检查和处理方式。
