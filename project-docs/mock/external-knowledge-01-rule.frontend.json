@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {
+      "path": "jkdbms-sp-f/src/views/AJ/XX/AJXX11.js",
+      "rule": "D:/WorkPlace/longruan_codeReview/jk_web/.ai_knowledge/xr-framework-usage.md\nKnowledge workflow: first read the index, then read only the relevant linked chapter(s). For this change, verify whether EiBlock.getMappedRows is supported by the declared @eplat/ei version. Cite the exact knowledge path and version in the finding. Do not report an issue when the API is documented and the code guards missing data. Use the source commit only; do not read current working-tree files."
+    }
+  ]
+}

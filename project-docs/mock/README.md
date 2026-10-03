@@ -31,4 +31,14 @@
 
 ## 命令索引
 
-当前尚未整理可直接复测的命令条目。已有原生能力与实验结论见 [OCR 知识库](../open-code-review/README.md)，后续开发时将实际命令及结果补入本目录。
+当前工单 01 的外部知识复测资料：
+
+| 主题 | 文件 | 状态 |
+|---|---|---|
+| 文件 MCP 路径边界、符号链接与工具白名单 | [external-knowledge-01-boundary.ps1](external-knowledge-01-boundary.ps1) | 部分验证（父目录/根外拒绝通过；符号链接受权限限制，2026-10-04） |
+| 前端隔离配置模板 | [external-knowledge-01-config.frontend.json](external-knowledge-01-config.frontend.json) | 可复用模板，路径需按环境替换 |
+| 后端隔离配置模板 | [external-knowledge-01-config.backend.json](external-knowledge-01-config.backend.json) | 可复用模板，路径需按环境替换 |
+| 前端原生规则样例 | [external-knowledge-01-rule.frontend.json](external-knowledge-01-rule.frontend.json) | 真实模型已验证误报排除及知识读取 |
+| 后端原生规则样例 | [external-knowledge-01-rule.backend.json](external-knowledge-01-rule.backend.json) | 真实模型已验证知识读取；须检查失败时诚实语义 |
+
+真实模型审查命令、提交范围、模型与服务版本及结果记录在[工单 01 复测记录](external-knowledge-01.md)和[工单 01](../../.scratch/review-report/issues/01-verify-external-knowledge.md)；配置模板不含凭据。运行边界脚本时，`TestRoot` 必须位于系统临时目录，脚本不会修改两个真实样例仓库。
