@@ -45,3 +45,5 @@
 真实模型审查命令、提交范围、模型与服务版本及结果记录在[工单 01 复测记录](external-knowledge-01.md)和[工单 01](../../.scratch/review-report/issues/01-verify-external-knowledge.md)；配置模板不含凭据。运行边界脚本时，`TestRoot` 必须位于系统临时目录，脚本不会修改两个真实样例仓库。
 
 工单 02 的受控 CLI、材料校验和安全保存复测见[报告材料复测记录](review-report-material-02.md)。
+
+工单 03 的分支范围、Git 统计和原生兼容复测见[分支报告材料复测记录](review-report-branch-material-03.md)。
