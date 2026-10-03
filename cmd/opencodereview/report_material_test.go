@@ -55,7 +55,7 @@ func TestParseReviewFlagsOptionalReportPath(t *testing.T) {
 
 func TestBuildReportMaterialRejectsMissingManifest(t *testing.T) {
 	started := time.Now()
-	_, err := buildReportMaterial(nil, t.TempDir(), nil, started, started, "fake", "fake-model", nil)
+	_, err := buildReportMaterial(nil, t.TempDir(), nil, started, started, "fake", "fake-model", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "native run manifest is unavailable") {
 		t.Fatalf("buildReportMaterial error = %v, want missing-manifest error", err)
 	}

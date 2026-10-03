@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/alibaba/open-code-review/internal/gitcmd"
 	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/model"
 	"github.com/alibaba/open-code-review/internal/report"
@@ -105,6 +106,7 @@ func buildReportMaterial(
 	startedAt, completedAt time.Time,
 	provider, modelName string,
 	toolFailures []llmloop.ToolFailureDetail,
+	gitRunner *gitcmd.Runner,
 ) (report.Material, error) {
 	if manifest == nil {
 		return report.Material{}, fmt.Errorf("native run manifest is unavailable")
@@ -141,7 +143,7 @@ func buildReportMaterial(
 		return report.Material{}, err
 	}
 	sections := report.MaterialSections{
-		GitStatistics:     notCollectedSection("本次审查尚未计算 Git 统计数据"),          // allow-non-english: report JSON requires Chinese user-facing facts
+		GitStatistics:     branchGitStatisticsSection(gitRunner, repoDir, scope),
 		WorkspaceSnapshot: notCollectedSection("本次审查尚未采集工作区状态统计"),            // allow-non-english: report JSON requires Chinese user-facing facts
 		Achievements:      notCollectedSection("本次审查尚未采集模块或成果依据"),            // allow-non-english: report JSON requires Chinese user-facing facts
 		People:            notCollectedSection("本次审查尚未采集人员贡献依据"),             // allow-non-english: report JSON requires Chinese user-facing facts
