@@ -45,6 +45,10 @@ type fakeLLM struct {
 	rateLimitOnce map[string]bool
 	// hardFail lists files whose every attempt returns 402.
 	hardFail map[string]bool
+	// includeFinding makes each main task report one native code_comment first.
+	includeFinding bool
+	findingPath    string
+	findingSent    map[string]bool
 }
 
 // newFakeLLM returns a server that succeeds on the first attempt for every
@@ -54,6 +58,7 @@ func newFakeLLM() *fakeLLM {
 		attemptsByFile: map[string]int{},
 		rateLimitOnce:  map[string]bool{},
 		hardFail:       map[string]bool{},
+		findingSent:    map[string]bool{},
 	}
 }
 
@@ -202,6 +207,22 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Main-task rounds carry tool definitions; the plan phase does not.
 	if hasTools {
+		f.mu.Lock()
+		path := f.findingPath
+		if path == "" {
+			path = markers[file]
+		}
+		includeFinding := f.includeFinding && path != "" && !f.findingSent[file]
+		if includeFinding {
+			f.findingSent[file] = true
+		}
+		f.mu.Unlock()
+		if includeFinding {
+			_, _ = fmt.Fprintf(w, `{"id":"msg_finding","type":"message","role":"assistant","model":"claude-test",
+				"content":[{"type":"tool_use","id":"tu_finding","name":"code_comment","input":{"comments":[{"content":"The changed return value breaks the expected behavior.","existing_code":"return 2","suggestion_code":"return 1","category":"bug","severity":"high","path":%q}]}}],
+				"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}`, path)
+			return
+		}
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-test",
 			"content":[{"type":"tool_use","id":"tu_1","name":"task_done","input":{"state":"DONE"}}],
 			"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}`))

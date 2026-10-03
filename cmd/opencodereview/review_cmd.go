@@ -18,6 +18,7 @@ import (
 	"github.com/alibaba/open-code-review/internal/diff"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/mcp"
+	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 	"github.com/alibaba/open-code-review/internal/telemetry"
 	"github.com/alibaba/open-code-review/internal/tool"
@@ -38,6 +39,8 @@ type reviewOptions struct {
 	outputFormat          string
 	audience              string
 	outputPath            string
+	reportEnabled         bool
+	reportPath            string
 	background            string
 	backgroundFile        string
 	provider              string
@@ -56,11 +59,11 @@ type reviewOptions struct {
 var reviewOpts reviewOptions
 
 var reviewCmd = &cobra.Command{
-	Use:     "review [flags]",
+	Use:     "review [flags] [report-path]",
 	Aliases: []string{"r"},
 	Short:   "Start a diff-based code review",
 	Long:    "OpenCodeReview - AI-Powered Code Review CLI\n\nStart a diff-based code review using a configurable LLM.",
-	Args:    cobra.NoArgs,
+	Args:    reviewArgsValidator(&reviewOpts),
 	Example: `  # Review staged + unstaged + untracked changes in current workspace
   ocr review
 
@@ -70,6 +73,12 @@ var reviewCmd = &cobra.Command{
   # Review a specific commit
   ocr review --commit abc123
   ocr review -c abc123
+
+  # Save versioned report material under the repository root
+  ocr review --commit abc123 --report
+
+  # Save versioned report material to a separate path
+  ocr review --commit abc123 --report './reports/final review.json'
 
   # Resume a previous range review
   ocr review --from master --to dev-ref --resume <session-id>
@@ -112,6 +121,16 @@ func init() {
 }
 
 func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error) {
+	if opts.reportEnabled && opts.reportPath != "" {
+		// 必须在原生输出文件打开前检查，避免重合路径截断已有文件。 // allow-non-english: explains output path check ordering
+		conflict, err := report.PathsConflict(opts.outputPath, opts.reportPath)
+		if err != nil {
+			return fmt.Errorf("check --report path: %w", err)
+		}
+		if conflict {
+			return fmt.Errorf("--report path conflicts with --output path")
+		}
+	}
 	out, closeOut, err := resolveOutputWriter(opts.outputPath, opts.outputFormat)
 	if err != nil {
 		return err
@@ -264,8 +283,23 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 		}
 	}
 	startTime := time.Now()
+	reportTarget := ""
+	if opts.reportEnabled {
+		reportTarget = opts.reportPath
+		if reportTarget == "" {
+			reportTarget = defaultReportPath(cc.RepoDir, requestedReportScope(opts), startTime)
+		}
+		conflict, conflictErr := report.PathsConflict(opts.outputPath, reportTarget)
+		if conflictErr != nil {
+			return fmt.Errorf("check --report path: %w", conflictErr)
+		}
+		if conflict {
+			return fmt.Errorf("--report path conflicts with --output path")
+		}
+	}
 
 	comments, runErr := ag.Run(runCtx)
+	completedAt := time.Now()
 	manifest := ag.RunManifest()
 
 	// Freeze the retry report at the same boundary as the manifest: ag.Run has
@@ -294,14 +328,26 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	// error so JSON consumers retain the complete coverage diagnosis.
 	var emitErr error
 	emitted := manifest != nil || runErr == nil
+	resolvedComments := comments
+	if opts.reportEnabled {
+		resolvedComments = diff.ResolveLineNumbers(comments, ag.Diffs())
+	}
 	if emitted {
 		emitErr = emitRunResult(runCtx, ag, comments, startTime, opts.outputFormat, opts.audience, q, llmIdentity, out, retryReport)
 		if emitErr != nil {
 			emitErr = fmt.Errorf("emit review result: %w", emitErr)
-		} else {
-			// Commit the report before potentially slow MCP shutdown. The deferred
-			// close remains a fallback for every earlier return and emit failure.
-			emitErr = finishOutput()
+		}
+	}
+	if closeErr := finishOutput(); closeErr != nil {
+		emitErr = errors.Join(emitErr, closeErr)
+	}
+	var materialErr error
+	if opts.reportEnabled {
+		material, buildErr := buildReportMaterial(manifest, cc.RepoDir, resolvedComments, startTime, completedAt, rt.Provider, rt.Model, ag.ToolFailures())
+		if buildErr != nil {
+			materialErr = fmt.Errorf("generate report material: %w", buildErr)
+		} else if _, saveErr := report.WriteMaterial(reportTarget, opts.reportPath == "", material); saveErr != nil {
+			materialErr = fmt.Errorf("save report material: %w", saveErr)
 		}
 	}
 	if resultErr != nil {
@@ -318,9 +364,9 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 		if id := ag.SessionID(); id != "" {
 			fmt.Fprintf(os.Stderr, "[ocr] Session: %s (retry with: --resume %s)\n", id, id)
 		}
-		return errors.Join(resultErr, emitErr)
+		return errors.Join(resultErr, emitErr, materialErr)
 	}
-	return emitErr
+	return errors.Join(emitErr, materialErr)
 }
 
 func reviewResultError(runErr error, manifest *session.RunManifest) error {
