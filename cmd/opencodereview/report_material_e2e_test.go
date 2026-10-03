@@ -220,7 +220,7 @@ func TestBuildReportMaterialCarriesPartialAndFailedLimitations(t *testing.T) {
 	}
 	comments := []model.LlmComment{{Path: "main.go", Content: "finding", ExistingCode: "return 2", Severity: "high", Category: "bug"}}
 	toolFailures := []llmloop.ToolFailureDetail{{ToolCallNumber: 1, ToolName: "read_file", Arguments: "sensitive input", Error: "raw detail"}}
-	material, err := buildReportMaterial(manifest, "repo", comments, started, started.Add(time.Second), "fake", "fake-model", toolFailures)
+	material, err := buildReportMaterial(manifest, "repo", comments, started, started.Add(time.Second), "fake", "fake-model", toolFailures, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestBuildReportMaterialCarriesPartialAndFailedLimitations(t *testing.T) {
 	manifest.RunID = "failed-run"
 	manifest.TerminalState = session.StateFailed
 	manifest.RunFailure = &session.RunFailure{Classification: session.RunFailureTimeout, Reason: "overall timeout"}
-	failed, err := buildReportMaterial(manifest, "repo", nil, started, started.Add(time.Second), "fake", "fake-model", nil)
+	failed, err := buildReportMaterial(manifest, "repo", nil, started, started.Add(time.Second), "fake", "fake-model", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestBuildReportMaterialPreservesEveryReviewModeScope(t *testing.T) {
 					Failed: []session.CoverageItem{}, Waived: []session.CoverageItem{},
 				},
 			}
-			material, err := buildReportMaterial(manifest, "repo", nil, started, started.Add(time.Second), "fake", "fake-model", nil)
+			material, err := buildReportMaterial(manifest, "repo", nil, started, started.Add(time.Second), "fake", "fake-model", nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -382,7 +382,7 @@ func TestBuildReportMaterialPreservesMissingFindingLabelFacts(t *testing.T) {
 			const sourceContent = "Original model finding text"
 			material, err := buildReportMaterial(manifest, "repo", []model.LlmComment{{
 				Path: "main.go", StartLine: 3, EndLine: 3, Severity: tc.severity, Category: tc.category, Content: sourceContent,
-			}}, started, started.Add(time.Second), "fake", "fake-model", nil)
+			}}, started, started.Add(time.Second), "fake", "fake-model", nil, nil)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("build material accepted unsupported non-empty labels")

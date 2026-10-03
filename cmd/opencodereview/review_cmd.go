@@ -343,7 +343,7 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	}
 	var materialErr error
 	if opts.reportEnabled {
-		material, buildErr := buildReportMaterial(manifest, cc.RepoDir, resolvedComments, startTime, completedAt, rt.Provider, rt.Model, ag.ToolFailures())
+		material, buildErr := buildReportMaterial(manifest, cc.RepoDir, resolvedComments, startTime, completedAt, rt.Provider, rt.Model, ag.ToolFailures(), cc.GitRunner)
 		if buildErr != nil {
 			materialErr = fmt.Errorf("generate report material: %w", buildErr)
 		} else if _, saveErr := report.WriteMaterial(reportTarget, opts.reportPath == "", material); saveErr != nil {
