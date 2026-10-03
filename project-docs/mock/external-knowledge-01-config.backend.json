@@ -1,0 +1,18 @@
+{
+  "mcp_servers": {
+    "knowledge": {
+      "command": "C:/path/to/node.exe",
+      "args": [
+        "C:/path/to/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+        "D:/WorkPlace/longruan_codeReview/jk/.ai_knowledge"
+      ],
+      "tools": [
+        "read_text_file",
+        "list_directory",
+        "search_files",
+        "get_file_info",
+        "list_allowed_directories"
+      ]
+    }
+  }
+}
