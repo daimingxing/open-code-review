@@ -6,40 +6,151 @@
 
 最近执行日期：2026-10-04。实测环境为 Windows 11、PowerShell 7、OCR v1.12.11（a758d9c）、Node.js v22.22.2、`@modelcontextprotocol/server-filesystem` 2026.8.31、DeepSeek `deepseek-flash`。真实模型测试使用样例仓库提交 `fd4fdae1dda41b4a6ad7193218d2585500307349` 与 `ab9d7dc11cc72f6413974992882aa25f8779d9a6`。重新运行前应确认资源索引中的路径和目标提交仍存在，并从自身授权模型配置取得服务凭据；不要把凭据写进仓库或终端输出。
 
-配置模板 [`external-knowledge-01-config.frontend.json`](external-knowledge-01-config.frontend.json) 和 [`external-knowledge-01-config.backend.json`](external-knowledge-01-config.backend.json) 仅包含 MCP 覆盖段，不含凭据。将其 `mcp_servers` 合并进隔离用户配置；保留该隔离配置中已有的模型供应商凭据，并将 `command`、filesystem MCP 程序路径及授权目录替换成当前环境的绝对路径。不要改全局 OCR 配置。白名单限定为 `read_text_file`、`list_directory`、`search_files`、`get_file_info`、`list_allowed_directories`；filesystem 服务自身还会列出写工具，OCR 配置白名单必须阻止模型调用它们。
+配置模板 [`external-knowledge-01-config.frontend.json`](external-knowledge-01-config.frontend.json) 和 [`external-knowledge-01-config.backend.json`](external-knowledge-01-config.backend.json) 仅包含 MCP 覆盖段，不含凭据。下方 PS7 流程从当前用户的 OCR 配置安全读取既有模型配置，在内存中解析并保留 provider credential，仅将完整配置序列化到当前用户 ACL 保护的唯一系统临时目录；不打印凭据，不复制到仓库或其他长期配置，不修改来源配置。OCR CLI 运行时必须能从临时配置文件读取 provider credential，因此该短期隔离文件是运行所需的临时副本；脚本用 `finally` 精确删除本次创建的临时目录。若你的 OCR 使用自定义配置位置，只需调整 `$sourceConfigPath`。白名单限定为 `read_text_file`、`list_directory`、`search_files`、`get_file_info`、`list_allowed_directories`；filesystem 服务自身还会列出写工具，OCR 配置白名单必须阻止模型调用它们。
 
-## 真实模型命令
+## 隔离准备与真实模型命令
 
-以下为 PowerShell 7 命令。先设置环境变量，指向一个临时隔离的用户配置目录、已安装的 OCR CLI、规则和背景文件；`USERPROFILE` 应仅在当前进程环境生效。隔离配置应从已有用户配置副本建立，再合并对应 MCP 覆盖段，不要输出配置文件内容。
+以下代码块可在仓库根目录的 PowerShell 7 终端整段执行。前提是 OCR v1.12.11、Node.js/npm、已授权的 DeepSeek 配置，以及资源索引中两个只读真实样例仓库和目标提交存在；npm registry 可访问。它在系统临时目录安装 filesystem MCP，规则文件从仓库模板复制，背景文件写入临时目录。真实仓库与知识库仅通过 MCP 读取。真实模型调用会产生服务用量。
 
 ```powershell
-$env:USERPROFILE = $isolatedHome
+$ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path '.').Path
 $repoFrontend = 'D:\WorkPlace\longruan_codeReview\jk_web'
 $repoBackend = 'D:\WorkPlace\longruan_codeReview\jk'
+$sourceConfigPath = Join-Path $env:USERPROFILE '.opencodereview/config.json'
+$runId = [guid]::NewGuid().ToString('N')
+$testRoot = Join-Path ([IO.Path]::GetTempPath()) "ocr-external-knowledge-$runId"
+$resultDirectory = Join-Path $testRoot 'results'
+$isolatedHome = Join-Path $testRoot 'home'
+$ocrConfigDirectory = Join-Path $isolatedHome '.opencodereview'
+$isolatedConfigPath = Join-Path $ocrConfigDirectory 'config.json'
+$mcpRoot = Join-Path $testRoot 'mcp'
+$mcpEntry = Join-Path $mcpRoot 'node_modules/@modelcontextprotocol/server-filesystem/dist/index.js'
+$frontendKnowledge = Join-Path $repoFrontend '.ai_knowledge'
+$backendKnowledge = Join-Path $repoBackend '.ai_knowledge'
+$frontendRule = Join-Path $testRoot 'rule.frontend.json'
+$backendRule = Join-Path $testRoot 'rule.backend.json'
+$frontendConfigTemplate = Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-config.frontend.json'
+$backendConfigTemplate = Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-config.backend.json'
+$frontendBackground = Join-Path $testRoot 'background.frontend.md'
+$backendBackground = Join-Path $testRoot 'background.backend.md'
+$oldUserProfile = $env:USERPROFILE
+$oldNpmCache = $env:npm_config_cache
 
-ocr review --repo $repoFrontend --commit fd4fdae1 --rule $frontendRule --background-file $frontendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'frontend.json') --timeout 10 --max-tokens-budget 75000
-ocr review --repo $repoBackend --commit ab9d7dc1 --rule $backendRule --background-file $backendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'backend.json') --timeout 10 --max-tokens-budget 120000
+foreach ($path in @($repoFrontend, $repoBackend, $frontendKnowledge, $backendKnowledge, $sourceConfigPath)) {
+    if (-not (Test-Path -LiteralPath $path)) { throw "Required local input is missing: $path" }
+}
+git -C $repoFrontend cat-file -e 'fd4fdae1^{commit}'
+if ($LASTEXITCODE -ne 0) { throw 'Frontend target commit fd4fdae1 is unavailable.' }
+git -C $repoBackend cat-file -e 'ab9d7dc1^{commit}'
+if ($LASTEXITCODE -ne 0) { throw 'Backend target commit ab9d7dc1 is unavailable.' }
+
+New-Item -ItemType Directory -Path $testRoot | Out-Null
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = [Security.AccessControl.DirectorySecurity]::new()
+$acl.SetAccessRuleProtection($true, $false)
+$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+Set-Acl -LiteralPath $testRoot -AclObject $acl
+New-Item -ItemType Directory -Path $isolatedHome, $ocrConfigDirectory, $mcpRoot, $resultDirectory | Out-Null
+Write-Output "Temporary review root (contains the short-lived isolated config): $testRoot"
+
+try {
+    # 仅从授权配置读取，不把 provider credential 写入输出或工作区文件。
+    $userConfig = Get-Content -LiteralPath $sourceConfigPath -Raw | ConvertFrom-Json -AsHashtable
+    $userConfig['mcp_servers'] = @{}
+
+    $env:npm_config_cache = Join-Path $testRoot 'npm-cache'
+    npm install --prefix $mcpRoot --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
+    $node = (Get-Command node -ErrorAction Stop).Source
+
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-rule.frontend.json') $frontendRule
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-rule.backend.json') $backendRule
+    Set-Content -LiteralPath $frontendBackground -Encoding utf8 -Value @'
+审查目标：fd4fdae1。仅按目标提交范围判断。核对 EiBlock.getMappedRows 是否受当前 @eplat/ei 版本支持，并排除知识已证明可用且代码已做空值保护的误报；同时检查变更中的真实并发状态问题。知识必须通过规则指定的独立知识目录读取。
+'@
+    Set-Content -LiteralPath $backendBackground -Encoding utf8 -Value @'
+审查目标：ab9d7dc1。仅按目标提交范围判断。重点核对 XLocalManager.call 包装中的成功状态判断，严格依据独立知识目录中的服务调用章节，不从常识推断状态语义；读取失败或正文不完整时如实说明。
+'@
+
+    function Set-IsolatedKnowledgeRoot([string] $knowledgeRoot, [string] $templatePath) {
+        $override = Get-Content -LiteralPath $templatePath -Raw | ConvertFrom-Json -AsHashtable
+        $knowledgeServer = $override['mcp_servers']['knowledge']
+        $knowledgeServer['command'] = $node
+        $knowledgeServer['args'] = @($mcpEntry, $knowledgeRoot)
+        $userConfig['mcp_servers'] = @{ knowledge = $knowledgeServer }
+        $json = ConvertTo-Json -InputObject $userConfig -Depth 100
+        [IO.File]::WriteAllText($isolatedConfigPath, $json, [Text.UTF8Encoding]::new($false))
+    }
+
+    $env:USERPROFILE = $isolatedHome
+    $testRoot
+    Set-IsolatedKnowledgeRoot $frontendKnowledge $frontendConfigTemplate
+    ocr review --repo $repoFrontend --commit fd4fdae1 --rule $frontendRule --background-file $frontendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $resultDirectory 'frontend.json') --timeout 10 --max-tokens-budget 75000
+    if ($LASTEXITCODE -ne 0) { throw "Frontend OCR review failed with exit code $LASTEXITCODE." }
+
+    Set-IsolatedKnowledgeRoot $backendKnowledge $backendConfigTemplate
+    ocr review --repo $repoBackend --commit ab9d7dc1 --rule $backendRule --background-file $backendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $resultDirectory 'backend-first.json') --timeout 10 --max-tokens-budget 120000
+    if ($LASTEXITCODE -ne 0) { throw "Backend first OCR review failed with exit code $LASTEXITCODE." }
+
+    # 保留首次结果；后端定向重试使用显式定义的 $backendRule 和 $backendBackground。
+    ocr review --repo $repoBackend --commit ab9d7dc1 --rule $backendRule --background-file $backendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $resultDirectory 'backend-retry.json') --timeout 10 --max-tokens-budget 180000
+    if ($LASTEXITCODE -ne 0) { throw "Backend retry OCR review failed with exit code $LASTEXITCODE." }
+}
+finally {
+    $env:USERPROFILE = $oldUserProfile
+    if ($null -eq $oldNpmCache) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue }
+    else { $env:npm_config_cache = $oldNpmCache }
+    $savedResults = $null
+    if ((Test-Path -LiteralPath $resultDirectory) -and (Get-ChildItem -LiteralPath $resultDirectory -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+        $savedResults = Join-Path ([IO.Path]::GetTempPath()) "ocr-external-knowledge-results-$runId"
+        Move-Item -LiteralPath $resultDirectory -Destination $savedResults
+    }
+    if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
+    if ($savedResults) {
+        Write-Output "Review JSON results (may contain repository code): $savedResults"
+        Write-Output "After inspection, remove only that directory with: Remove-Item -LiteralPath '$savedResults' -Recurse -Force"
+    }
+}
 ```
 
 前端规则样例：[`external-knowledge-01-rule.frontend.json`](external-knowledge-01-rule.frontend.json)。规则路径关联 `.ai_knowledge/xr-framework-usage.md`，要求先读索引并按需读章节，核实 `@eplat/ei` 版本和 `EiBlock.getMappedRows`。原生背景文件提供审查焦点；期望模型引用 `eplatei-knowledge.md` 与 `02-eiblock.md`、版本 `@eplat/ei 2.2.1`，排除已受支持且有空值保护的 API 误报，并能结合当前差异发现实际问题。
 
 后端规则样例：[`external-knowledge-01-rule.backend.json`](external-knowledge-01-rule.backend.json)。规则路径关联 `.ai_knowledge/02-服务调用.md`，要求精确比较负状态约定与 `STATUS_FAILURE` 等值判断。原生背景文件限定核验范围；期望模型实际读取索引/章节、引用文档路径并根据目标提交代码得出结论。仅凭审查结果“complete”或模型自行复述规则不算知识使用证据，必须核对 MCP `read_text_file` 工具调用及其文件路径。
 
-输出目录中可能含代码片段和审查内容，应按项目数据处理；分享结果前检查并移除不需要的内容。清理临时隔离配置和模型输出时，仅删除本次创建且已核实位于系统临时目录的专用目录。
+结果 JSON 移到 ACL 仅授予当前 Windows 用户的独立临时结果目录，供命令结束后检查；它可能含代码片段和审查内容，应按项目数据处理。输出中会给出结果目录和精确清理命令。隔离配置、依赖、规则与背景文件在 `finally` 中删除；若进程被强制终止导致清理未运行，先核对输出的唯一临时根路径确属本次运行，再精确删除该目录。不要递归清理系统临时目录中的其他内容。
 
 ## MCP 路径边界复测
 
 安装文件 MCP 到临时前缀后，可用 [`external-knowledge-01-boundary.ps1`](external-knowledge-01-boundary.ps1) 检查服务端授权根目录、根外和父目录访问。脚本仅在系统临时目录建测试目录和探测文件。参数 `McpEntry` 指向 filesystem MCP 的 `dist/index.js`；`OutsideFile` 必须是测试根之外的临时普通文件；`TestRoot` 必须是系统临时目录内的子目录。
 
 ```powershell
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) 'ocr-knowledge-boundary'
-$outsideFile = Join-Path ([IO.Path]::GetTempPath()) 'ocr-knowledge-outside.md'
-Set-Content -LiteralPath $outsideFile -Value 'boundary probe' -NoNewline
-& .\project-docs\mock\external-knowledge-01-boundary.ps1 `
-  -McpEntry $mcpEntry `
-  -TestRoot (Join-Path $tempRoot 'authorized-root') `
-  -OutsideFile $outsideFile
-Remove-Item -LiteralPath $outsideFile -Force
+$ErrorActionPreference = 'Stop'
+$runRoot = Join-Path ([IO.Path]::GetTempPath()) ('ocr-knowledge-boundary-' + [guid]::NewGuid().ToString('N'))
+$mcpRoot = Join-Path $runRoot 'mcp'
+$mcpEntry = Join-Path $mcpRoot 'node_modules/@modelcontextprotocol/server-filesystem/dist/index.js'
+$tempRoot = Join-Path $runRoot 'authorized'
+$outsideFile = Join-Path $runRoot 'boundary-outside.md'
+$npmCache = Join-Path $runRoot 'npm-cache'
+$oldNpmCache = $env:npm_config_cache
+try {
+    New-Item -ItemType Directory -Path $runRoot | Out-Null
+    $env:npm_config_cache = $npmCache
+    npm install --prefix $mcpRoot --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
+    Set-Content -LiteralPath $outsideFile -Value 'boundary probe' -NoNewline
+    & .\project-docs\mock\external-knowledge-01-boundary.ps1 `
+      -McpEntry $mcpEntry `
+      -TestRoot (Join-Path $tempRoot 'authorized-root') `
+      -OutsideFile $outsideFile
+    if ($LASTEXITCODE -ne 0) { throw "Boundary probe failed with exit code $LASTEXITCODE." }
+}
+finally {
+    if ($null -eq $oldNpmCache) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue }
+    else { $env:npm_config_cache = $oldNpmCache }
+    if (Test-Path -LiteralPath $runRoot) { Remove-Item -LiteralPath $runRoot -Recurse -Force }
+}
 ```
 
 通过条件：`list_allowed_directories` 只列出测试根；父目录和根外文件读取返回 `Access denied`；指向授权根外目标的文件符号链接或目录 Junction 也必须拒绝。此脚本连接 MCP 服务端，因此服务端 `listTools` 会展示它实现的全部工具；是否只向模型提供只读能力须另核对 OCR 会话中实际调用工具名与隔离配置白名单。Windows 的 Junction 是目录联接，不等同于文件符号链接，需分别记录。
@@ -51,20 +162,131 @@ Linux 真符号链接复测使用 [external-knowledge-01-linux-symlink.ps1](exte
 下列命令使用真实 filesystem MCP，但仅处理临时目录中的探针文件，不调用模型：
 
 ```powershell
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) 'ocr-knowledge-content'
-& .\project-docs\mock\external-knowledge-01-content.ps1 `
-  -McpEntry $mcpEntry `
-  -TestRoot (Join-Path $tempRoot 'authorized-root')
+$ErrorActionPreference = 'Stop'
+$runRoot = Join-Path ([IO.Path]::GetTempPath()) ('ocr-knowledge-content-' + [guid]::NewGuid().ToString('N'))
+$mcpRoot = Join-Path $runRoot 'mcp'
+$mcpEntry = Join-Path $mcpRoot 'node_modules/@modelcontextprotocol/server-filesystem/dist/index.js'
+$npmCache = Join-Path $runRoot 'npm-cache'
+$oldNpmCache = $env:npm_config_cache
+try {
+    New-Item -ItemType Directory -Path $runRoot | Out-Null
+    $env:npm_config_cache = $npmCache
+    npm install --prefix $mcpRoot --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
+    & .\project-docs\mock\external-knowledge-01-content.ps1 `
+      -McpEntry $mcpEntry `
+      -TestRoot (Join-Path $runRoot 'authorized-root')
+    if ($LASTEXITCODE -ne 0) { throw "Content probe failed with exit code $LASTEXITCODE." }
+}
+finally {
+    if ($null -eq $oldNpmCache) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue }
+    else { $env:npm_config_cache = $oldNpmCache }
+    if (Test-Path -LiteralPath $runRoot) { Remove-Item -LiteralPath $runRoot -Recurse -Force }
+}
 ```
 
 2026-10-04，Node.js v22.22.2、`@modelcontextprotocol/server-filesystem` 2026.8.31 实测：授权列表只含探针根；读取不存在的 `missing.md` 返回 `isError: true` 和 `ENOENT`；`read_text_file` 对三行 `partial.md` 指定 `head: 1` 时仅返回 `evidence-first`，不返回后两行，也没有声称内容完整的元数据。脚本在 `finally` 中删除探针正文文件。
 
-再用临时隔离 OCR 用户目录配置同一只读知识 MCP、临时 Git 仓库和缺失/部分正文索引，执行真实模型审查：
+下面代码块独立准备临时 Git 仓库、缺失/部分知识文档和私有隔离 OCR 配置，然后分别验证部分正文与服务不可用。所有变量在块内定义；只在你已有 DeepSeek provider credential 的情况下运行。模型调用可能产生费用。
 
 ```powershell
-$env:USERPROFILE = $isolatedHome
-ocr review --repo $fixtureRepo --rule $rulePath --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'failure-missing-partial-60k.json') --timeout 10 --max-tokens-budget 60000
+$ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path '.').Path
+$backendConfigTemplate = Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-config.backend.json'
+$sourceConfigPath = Join-Path $env:USERPROFILE '.opencodereview/config.json'
+$oldUserProfile = $env:USERPROFILE
+$oldNpmCache = $env:npm_config_cache
+$failureRoot = Join-Path ([IO.Path]::GetTempPath()) ('ocr-knowledge-failure-' + [guid]::NewGuid().ToString('N'))
+$isolatedHome = Join-Path $failureRoot 'home'
+$configDirectory = Join-Path $isolatedHome '.opencodereview'
+$configPath = Join-Path $configDirectory 'config.json'
+$mcpRoot = Join-Path $failureRoot 'mcp'
+$knowledgeRoot = Join-Path $failureRoot 'knowledge'
+$fixtureRepo = Join-Path $failureRoot 'repo'
+$outputDirectory = Join-Path $failureRoot 'output'
+$mcpEntry = Join-Path $mcpRoot 'node_modules/@modelcontextprotocol/server-filesystem/dist/index.js'
+$rulePath = Join-Path $failureRoot 'rule.json'
+$node = (Get-Command node -ErrorAction Stop).Source
+$npmCache = Join-Path $failureRoot 'npm-cache'
+$mcpTools = @('read_text_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories')
+
+New-Item -ItemType Directory -Path $failureRoot | Out-Null
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = [Security.AccessControl.DirectorySecurity]::new()
+$acl.SetAccessRuleProtection($true, $false)
+$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+Set-Acl -LiteralPath $failureRoot -AclObject $acl
+New-Item -ItemType Directory -Path $isolatedHome, $configDirectory, $mcpRoot, $knowledgeRoot, $fixtureRepo, $outputDirectory | Out-Null
+Write-Output "Temporary failure-probe root (contains the short-lived isolated config): $failureRoot"
+
+try {
+    $userConfig = Get-Content -LiteralPath $sourceConfigPath -Raw | ConvertFrom-Json -AsHashtable
+    $userConfig['mcp_servers'] = @{}
+    $env:npm_config_cache = $npmCache
+    npm install --prefix $mcpRoot --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
+
+    Set-Content -LiteralPath (Join-Path $knowledgeRoot 'index.md') -Encoding utf8 -Value @'
+# 临时知识索引
+- missing-chapter.md：预期但不存在的文档。
+- partial.md：刻意要求只读取一行的部分正文。
+'@
+    Set-Content -LiteralPath (Join-Path $knowledgeRoot 'partial.md') -Encoding utf8 -NoNewline -Value "evidence-first`nevidence-second`nevidence-third"
+    Set-Content -LiteralPath (Join-Path $fixtureRepo 'probe.txt') -Encoding utf8 -Value 'initial fixture'
+    git -C $fixtureRepo init
+    git -C $fixtureRepo config user.name 'OCR fixture'
+    git -C $fixtureRepo config user.email 'ocr-fixture@example.invalid'
+    git -C $fixtureRepo add probe.txt
+    git -C $fixtureRepo commit -m 'fixture baseline'
+    New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'src') | Out-Null
+    Set-Content -LiteralPath (Join-Path $fixtureRepo 'src/probe.js') -Encoding utf8 -Value 'function readValue(value) { return value.trim(); }'
+    git -C $fixtureRepo add src/probe.js
+    git -C $fixtureRepo commit -m 'fixture review target'
+
+    $probeRuleText = @"
+$knowledgeRoot/index.md
+Before reaching any code conclusion, call the configured knowledge MCP to list its authorized root and read index.md. Then attempt to read missing-chapter.md and report its actual failure without claiming its contents. Read partial.md with head=1; state that only the returned line was read and do not claim full chapter verification. Base code review comments only on source evidence and state the knowledge limitations.
+"@
+    $ruleObject = @{ rules = @(@{ path = 'src/probe.js'; rule = $probeRuleText }) }
+    [IO.File]::WriteAllText($rulePath, (ConvertTo-Json $ruleObject -Depth 10), [Text.UTF8Encoding]::new($false))
+
+    function Write-FailureProbeConfig([string] $command, [string[]] $arguments) {
+        $override = Get-Content -LiteralPath $backendConfigTemplate -Raw | ConvertFrom-Json -AsHashtable
+        $knowledgeServer = $override['mcp_servers']['knowledge']
+        $knowledgeServer['command'] = $command
+        $knowledgeServer['args'] = $arguments
+        $userConfig['mcp_servers'] = @{ knowledge = $knowledgeServer }
+        [IO.File]::WriteAllText($configPath, (ConvertTo-Json $userConfig -Depth 100), [Text.UTF8Encoding]::new($false))
+    }
+
+    $env:USERPROFILE = $isolatedHome
+    Write-FailureProbeConfig $node @($mcpEntry, $knowledgeRoot)
+    ocr review --repo $fixtureRepo --rule $rulePath --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $outputDirectory 'missing-partial.json') --timeout 10 --max-tokens-budget 60000
+    if ($LASTEXITCODE -ne 0) { throw "Missing/partial knowledge review failed with exit code $LASTEXITCODE." }
+
+    Write-FailureProbeConfig (Join-Path $failureRoot 'missing-filesystem-mcp.exe') @()
+    ocr review --repo $fixtureRepo --rule $rulePath --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $outputDirectory 'mcp-unavailable.json') --timeout 10 --max-tokens-budget 60000
+    if ($LASTEXITCODE -ne 0) { throw "Unavailable MCP review failed with exit code $LASTEXITCODE." }
+}
+finally {
+    $env:USERPROFILE = $oldUserProfile
+    if ($null -eq $oldNpmCache) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue }
+    else { $env:npm_config_cache = $oldNpmCache }
+    $savedFailureResults = $null
+    if ((Test-Path -LiteralPath $outputDirectory) -and (Get-ChildItem -LiteralPath $outputDirectory -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+        $savedFailureResults = Join-Path ([IO.Path]::GetTempPath()) ("ocr-knowledge-failure-results-" + [IO.Path]::GetFileName($failureRoot))
+        Move-Item -LiteralPath $outputDirectory -Destination $savedFailureResults
+    }
+    if (Test-Path -LiteralPath $failureRoot) { Remove-Item -LiteralPath $failureRoot -Recurse -Force }
+    if ($savedFailureResults) {
+        Write-Output "Review JSON results (may contain fixture source): $savedFailureResults"
+        Write-Output "After inspection, remove only that directory with: Remove-Item -LiteralPath '$savedFailureResults' -Recurse -Force"
+    }
+}
 ```
+
+若进程被强制终止，先确认它仍是刚输出的 `$failureRoot` 且位于系统临时目录，再执行 `Remove-Item -LiteralPath $failureRoot -Recurse -Force`；正常完成时隔离配置自动删除，唯独保留待人工检查的结果 JSON。
 
 2026-10-04 实际退出码为 0，OCR 状态 `complete`，10 次调用。工具调用记录含索引读取、缺失章节的 `ENOENT` 响应，以及仅 `head: 1` 的部分章节读取。模型明确说缺失章节未读、只取得部分正文，不能声称了解缺失章节或已核验完整知识；结论限于已读证据。这里的 `complete` 仅表示本次代码审查覆盖完成，不表示知识读取完整。
 
@@ -93,20 +315,4 @@ ocr review --repo $fixtureRepo --rule $rulePath --provider deepseek --model deep
 
 ## 2026-10-04 执行命令补充
 
-本次隔离运行时把全局配置副本放在系统临时目录，仅在副本中加入一个知识 MCP；前后端审查分别运行，以便每次 MCP 授权只指向对应仓库 `.ai_knowledge`。隔离目录是本机临时路径，命令主体如下；具体 `$frontendRule`、`$backendRule` 与背景文件内容见已保存样例和上文，不包含密钥。
-
-```powershell
-$env:USERPROFILE = $isolatedHome
-ocr review --repo 'D:\WorkPlace\longruan_codeReview\jk_web' --commit fd4fdae1 --rule $frontendRule --background-file $frontendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'frontend.json') --timeout 10 --max-tokens-budget 75000
-ocr review --repo 'D:\WorkPlace\longruan_codeReview\jk' --commit ab9d7dc1 --rule $backendRule --background-file $backendBackground --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'backend.json') --timeout 10 --max-tokens-budget 120000
-```
-
-前两条命令退出码均为 0，OCR manifest 状态均为 `complete`。前端报告 1 条高优先级缺陷并排除知识确认的 API 误报；后端首次只报告 1 条低优先级风格意见且未读知识，不能算效果通过。
-
-首次运行后使用强化的 [`external-knowledge-01-rule.backend.json`](external-knowledge-01-rule.backend.json) 按以下命令重试，结果文件应另存以保留首次证据：
-
-```powershell
-ocr review --repo 'D:\WorkPlace\longruan_codeReview\jk' --commit ab9d7dc1 --rule $rule --background-file $background --provider deepseek --model deepseek-flash --audience agent --format json --output (Join-Path $testRoot 'backend-retry.json') --timeout 10 --max-tokens-budget 180000
-```
-
-第二次运行退出码为 0，OCR manifest 状态为 `complete`，21 次工具调用、失败 0 次、总用量 177,397 tokens；其中有 4 次知识正文读取。它报告 1 条高优先级知识依赖问题及两条低优先级意见。知识 MCP 调用路径、实际章节、提交范围和代码结论可在命令输出 JSON 的 `tool_calls`、`comments` 与 `manifest` 字段核验。两次后端运行均保留在隔离临时目录，供本机复核后清理。
+实际执行时后端知识规则先尝试一次、发现未调用知识 MCP，随后按上述后端定向重试要求补跑。前端退出码 0，9 次工具调用无失败；后端首次退出码 0、16 次工具调用但没有知识 MCP 调用，不算效果通过。后端定向重试退出码 0，OCR 状态 `complete`，21 次工具调用、失败 0 次、总用量 177,397 tokens，其中有 4 次知识正文读取。它报告 1 条高优先级知识依赖问题及两条低优先级意见。检查 JSON 时应核对 `tool_calls` 中实际知识路径、`comments` 中结论与 `manifest` 中目标提交范围；状态 `complete` 单独不构成知识应用证据。隔离运行根在本次执行后清理，若需复核应重跑上述完整准备流程并在脚本结束前查看本地产物。
