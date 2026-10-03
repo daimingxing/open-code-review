@@ -1,4 +1,4 @@
-# 使用真实 filesystem MCP 核验文档缺失与按 head 参数读取部分正文的工具响应。
+# 使用真实 filesystem MCP 核验文档缺失与按 head 参数读取部分正文的工具响应。 # allow-non-english: 仓库约定要求复测文档使用中文
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)] [string] $McpEntry,

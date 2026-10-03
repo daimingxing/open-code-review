@@ -1,4 +1,4 @@
-# 使用 Podman 的 Alpine 容器验证真实目录符号链接不能越出 filesystem MCP 授权根。
+# 使用 Podman 的 Alpine 容器验证真实目录符号链接不能越出 filesystem MCP 授权根。 # allow-non-english: 仓库约定要求复测文档使用中文
 [CmdletBinding()]
 param()
 

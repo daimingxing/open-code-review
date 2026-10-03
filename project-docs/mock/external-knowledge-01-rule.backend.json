@@ -2,7 +2,7 @@
   "rules": [
     {
       "path": "jkpmms-sp/src/main/java/com/baosight/jkdbms/common/utils/EiInfoCallUtil.java",
-      "rule": "D:/WorkPlace/longruan_codeReview/jk/.ai_knowledge/02-服务调用.md\nBefore reviewing this change, use the configured knowledge MCP to list the authorized knowledge directory, read its index, and read this service-call chapter. Do not proceed to the code conclusion until those MCP reads succeed. For this new wrapper around XLocalManager.call, apply the documented success-state check precisely. Compare the code's exact equality with STATUS_FAILURE against the knowledge requirement for negative statuses. Base the conclusion on the target commit code and cite the actual knowledge path. Do not speculate about status semantics beyond the knowledge and source evidence. If the MCP is unavailable or returns incomplete text, state that limitation and do not claim the chapter was read."
+      "rule": "D:/WorkPlace/longruan_codeReview/jk/.ai_knowledge/02-\u670d\u52a1\u8c03\u7528.md\nBefore reviewing this change, use the configured knowledge MCP to list the authorized knowledge directory, read its index, and read this service-call chapter. Do not proceed to the code conclusion until those MCP reads succeed. For this new wrapper around XLocalManager.call, apply the documented success-state check precisely. Compare the code's exact equality with STATUS_FAILURE against the knowledge requirement for negative statuses. Base the conclusion on the target commit code and cite the actual knowledge path. Do not speculate about status semantics beyond the knowledge and source evidence. If the MCP is unavailable or returns incomplete text, state that limitation and do not claim the chapter was read."
     }
   ]
 }
