@@ -83,14 +83,18 @@ type Revision struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// Finding 保留 OCR 原生问题说明，并以独立字段附加展示、证据和建议材料。 // allow-non-english: 用户要求中文代码注释
+// Finding 保留 OCR 原始标签与说明；缺失标签必须带 not_collected 状态和原因，并可供后续模式继续补充材料。 // allow-non-english: 用户要求中文代码注释
 type Finding struct {
 	ID             string                `json:"id"`
 	Path           string                `json:"path"`
 	StartLine      int                   `json:"start_line"`
 	EndLine        int                   `json:"end_line"`
 	Severity       string                `json:"severity"`
+	SeverityStatus Status                `json:"severity_status"`
+	SeverityReason string                `json:"severity_reason,omitempty"`
 	Category       string                `json:"category"`
+	CategoryStatus Status                `json:"category_status"`
+	CategoryReason string                `json:"category_reason,omitempty"`
 	SourceContent  string                `json:"source_content"`
 	Display        FindingDisplay        `json:"display"`
 	Evidence       FindingEvidence       `json:"evidence"`
@@ -365,11 +369,11 @@ func validateFinding(index int, finding Finding) error {
 	if finding.StartLine < 0 || finding.EndLine < finding.StartLine || ((finding.StartLine == 0) != (finding.EndLine == 0)) {
 		return fmt.Errorf("%s line position is invalid", prefix)
 	}
-	if !validSeverity(finding.Severity) {
-		return fmt.Errorf("%s.severity %q is invalid", prefix, finding.Severity)
+	if err := validateFindingLabel(prefix+".severity", finding.Severity, finding.SeverityStatus, finding.SeverityReason, finding.Display.SeverityZH, validSeverity, severityLabelZH); err != nil {
+		return err
 	}
-	if !validCategory(finding.Category) {
-		return fmt.Errorf("%s.category %q is invalid", prefix, finding.Category)
+	if err := validateFindingLabel(prefix+".category", finding.Category, finding.CategoryStatus, finding.CategoryReason, finding.Display.CategoryZH, validCategory, categoryLabelZH); err != nil {
+		return err
 	}
 	if finding.SourceContent == "" {
 		return fmt.Errorf("%s.source_content is required", prefix)
@@ -384,6 +388,33 @@ func validateFinding(index int, finding Finding) error {
 		return err
 	}
 	return nil
+}
+
+func validateFindingLabel(name, value string, status Status, reason, display string, valid func(string) bool, label func(string) string) error {
+	switch status {
+	case StatusProvided:
+		if !valid(value) || reason != "" || display != label(value) {
+			return fmt.Errorf("%s must contain a supported value, matching display label, and no reason when provided", name)
+		}
+	case StatusNotCollected:
+		if value != "" || strings.TrimSpace(reason) == "" || display != "未提供" { // allow-non-english: schema enforces the required Chinese missing-value label
+			return fmt.Errorf("%s requires a reason and no value when status is not_collected", name)
+		}
+	default:
+		return fmt.Errorf("%s.status %q is invalid", name, status)
+	}
+	return nil
+}
+
+func severityLabelZH(severity string) string {
+	return map[string]string{"critical": "严重", "high": "高", "medium": "中", "low": "低"}[severity] // allow-non-english: report schema validates Chinese severity labels
+}
+
+func categoryLabelZH(category string) string {
+	return map[string]string{
+		"bug": "缺陷", "security": "安全", "performance": "性能", "maintainability": "可维护性", // allow-non-english: schema validates Chinese category labels
+		"test": "测试", "style": "风格", "documentation": "文档", "other": "其他", // allow-non-english: schema validates Chinese category labels
+	}[category] // allow-non-english: report schema validates Chinese category labels
 }
 
 func validateEvidence(name string, status Status, value, reason string) error {

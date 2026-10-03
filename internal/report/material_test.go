@@ -134,12 +134,12 @@ func TestValidateMaterialChecksFindingFactFieldsAndUniqueIDs(t *testing.T) {
 	material.Findings = []Finding{
 		{
 			ID: findingID, Path: "src/main.go", StartLine: 3, EndLine: 4,
-			Severity: "high", Category: "bug", SourceContent: "race condition",
+			Severity: "high", SeverityStatus: StatusProvided, Category: "bug", CategoryStatus: StatusProvided, SourceContent: "race condition",
 			Display:        FindingDisplay{SummaryZH: "高风险问题，位于 src/main.go:3-4", SeverityZH: "高", CategoryZH: "缺陷"}, // allow-non-english: fixture exercises required Chinese finding text
 			Evidence:       FindingEvidence{Status: StatusProvided, Code: "state = next"},
 			Recommendation: FindingRecommendation{Status: StatusProvided, Code: "lock(state)"},
 		},
-		{ID: findingID, Path: "src/main.go", StartLine: 5, EndLine: 5, Severity: "medium", Category: "bug", SourceContent: "another issue",
+		{ID: findingID, Path: "src/main.go", StartLine: 5, EndLine: 5, Severity: "medium", SeverityStatus: StatusProvided, Category: "bug", CategoryStatus: StatusProvided, SourceContent: "another issue",
 			Display:        FindingDisplay{SummaryZH: "中风险问题，位于 src/main.go:5", SeverityZH: "中", CategoryZH: "缺陷"}, // allow-non-english: fixture exercises required Chinese finding text
 			Evidence:       FindingEvidence{Status: StatusNotCollected, Reason: "native result had no code excerpt"},
 			Recommendation: FindingRecommendation{Status: StatusNotCollected, Reason: "native result had no suggestion code"}},
@@ -155,13 +155,44 @@ func TestValidateMaterialChecksFindingFactFieldsAndUniqueIDs(t *testing.T) {
 	}
 }
 
+func TestValidateMaterialChecksMissingFindingLabelFacts(t *testing.T) {
+	material := validMaterial()
+	material.Findings = []Finding{{
+		ID: "sha256:" + strings.Repeat("f", 64), Path: "src/main.go", StartLine: 1, EndLine: 1,
+		SeverityStatus: StatusNotCollected, SeverityReason: "native result omitted severity",
+		CategoryStatus: StatusNotCollected, CategoryReason: "native result omitted category",
+		SourceContent: "finding", Display: FindingDisplay{SummaryZH: "等级未提供，类别未提供", SeverityZH: "未提供", CategoryZH: "未提供"}, // allow-non-english: fixture exercises missing Chinese finding labels
+		Evidence:       FindingEvidence{Status: StatusNotCollected, Reason: "no source excerpt"},
+		Recommendation: FindingRecommendation{Status: StatusNotCollected, Reason: "no suggestion"},
+	}}
+	if err := ValidateMaterial(material); err != nil {
+		t.Fatalf("ValidateMaterial rejected explicit missing label facts: %v", err)
+	}
+	material.Findings[0].Display.SeverityZH = "低" // allow-non-english: fixture proves missing status cannot claim a severity
+	if err := ValidateMaterial(material); err == nil || !strings.Contains(err.Error(), "severity") {
+		t.Fatalf("ValidateMaterial error = %v, want severity display mismatch error", err)
+	}
+	material.Findings[0].Display.SeverityZH = "未提供" // allow-non-english: restore explicit missing label
+
+	material.Findings[0].SeverityReason = ""
+	if err := ValidateMaterial(material); err == nil || !strings.Contains(err.Error(), "severity") {
+		t.Fatalf("ValidateMaterial error = %v, want missing severity reason error", err)
+	}
+	material.Findings[0].Severity = "urgent"
+	material.Findings[0].SeverityStatus = StatusProvided
+	material.Findings[0].SeverityReason = ""
+	if err := ValidateMaterial(material); err == nil || !strings.Contains(err.Error(), "severity") {
+		t.Fatalf("ValidateMaterial error = %v, want unsupported severity error", err)
+	}
+}
+
 func TestValidateMaterialRejectsAbsoluteAndTraversalPaths(t *testing.T) {
 	for _, path := range []string{`.`, `foo/..`, `..\outside.go`, `C:\secret\file.go`, `\\server\share\file.go`, `src\..\..\outside.go`} {
 		t.Run(path, func(t *testing.T) {
 			material := validMaterial()
 			material.Findings = []Finding{{
 				ID: "sha256:" + strings.Repeat("c", 64), Path: path, StartLine: 1, EndLine: 1,
-				Severity: "high", Category: "bug", SourceContent: "finding",
+				Severity: "high", SeverityStatus: StatusProvided, Category: "bug", CategoryStatus: StatusProvided, SourceContent: "finding",
 				Display:        FindingDisplay{SummaryZH: "原始审查意见：finding", SeverityZH: "高", CategoryZH: "缺陷"}, // allow-non-english: fixture exercises required Chinese finding text
 				Evidence:       FindingEvidence{Status: StatusNotCollected, Reason: "no source excerpt"},
 				Recommendation: FindingRecommendation{Status: StatusNotCollected, Reason: "no suggestion"},
@@ -177,7 +208,7 @@ func TestValidateMaterialAllowsColonInRepositoryRelativePaths(t *testing.T) {
 	material := validMaterial()
 	material.Findings = []Finding{{
 		ID: "sha256:" + strings.Repeat("e", 64), Path: "src/a:b.go", StartLine: 1, EndLine: 1,
-		Severity: "high", Category: "bug", SourceContent: "finding",
+		Severity: "high", SeverityStatus: StatusProvided, Category: "bug", CategoryStatus: StatusProvided, SourceContent: "finding",
 		Display:        FindingDisplay{SummaryZH: "原始审查意见：finding", SeverityZH: "高", CategoryZH: "缺陷"}, // allow-non-english: fixture exercises required Chinese finding text
 		Evidence:       FindingEvidence{Status: StatusNotCollected, Reason: "no source excerpt"},
 		Recommendation: FindingRecommendation{Status: StatusNotCollected, Reason: "no suggestion"},

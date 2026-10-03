@@ -321,8 +321,20 @@ func materialFindings(manifest *session.RunManifest, repoName string, comments [
 		duplicates[baseID]++
 		findingIdentity.DuplicateOrdinal = duplicates[baseID]
 		severityZH, categoryZH := findingLabels(comment.Severity, comment.Category)
-		if severityZH == "" || categoryZH == "" {
+		severityStatus, severityReason := findingLabelStatus(comment.Severity, "原生审查结果未提供问题等级") // allow-non-english: report JSON requires explicit missing fact reasons
+		categoryStatus, categoryReason := findingLabelStatus(comment.Category, "原生审查结果未提供问题类别") // allow-non-english: report JSON requires explicit missing fact reasons
+		if (comment.Severity != "" && severityZH == "") || (comment.Category != "" && categoryZH == "") {
 			return nil, fmt.Errorf("finding %s has an unsupported native severity or category", baseID)
+		}
+		severityPhrase := severityZH + "级" // allow-non-english: report summary includes a Chinese severity unit
+		if severityStatus == report.StatusNotCollected {
+			severityZH = "未提供"       // allow-non-english: report JSON requires a Chinese missing-value label
+			severityPhrase = "等级未提供" // allow-non-english: report JSON requires a Chinese missing-value phrase
+		}
+		categoryPhrase := categoryZH
+		if categoryStatus == report.StatusNotCollected {
+			categoryZH = "未提供"       // allow-non-english: report JSON requires a Chinese missing-value label
+			categoryPhrase = "类别未提供" // allow-non-english: report JSON requires a Chinese missing-value phrase
 		}
 		position := "行号未解析" // allow-non-english: report JSON requires Chinese position text
 		if comment.StartLine > 0 {
@@ -334,15 +346,19 @@ func materialFindings(manifest *session.RunManifest, repoName string, comments [
 		evidenceStatus, evidenceCode, evidenceReason := materialCode(comment.ExistingCode, "原生审查结果未提供相关代码片段")                     // allow-non-english: report JSON requires Chinese limitation reasons
 		recommendationStatus, recommendationCode, recommendationReason := materialCode(comment.SuggestionCode, "原生审查结果未提供修复代码建议") // allow-non-english: report JSON requires Chinese limitation reasons
 		finding := report.Finding{
-			ID:            report.NewFindingID(findingIdentity),
-			Path:          comment.Path,
-			StartLine:     comment.StartLine,
-			EndLine:       comment.EndLine,
-			Severity:      comment.Severity,
-			Category:      comment.Category,
-			SourceContent: comment.Content,
+			ID:             report.NewFindingID(findingIdentity),
+			Path:           comment.Path,
+			StartLine:      comment.StartLine,
+			EndLine:        comment.EndLine,
+			Severity:       comment.Severity,
+			SeverityStatus: severityStatus,
+			SeverityReason: severityReason,
+			Category:       comment.Category,
+			CategoryStatus: categoryStatus,
+			CategoryReason: categoryReason,
+			SourceContent:  comment.Content,
 			Display: report.FindingDisplay{
-				SummaryZH:  fmt.Sprintf("%s 的%s发现%s级%s问题。原始审查意见：%s", comment.Path, position, severityZH, categoryZH, comment.Content), // allow-non-english: report JSON requires Chinese finding display text
+				SummaryZH:  fmt.Sprintf("%s 的%s发现%s%s问题。原始审查意见：%s", comment.Path, position, severityPhrase, categoryPhrase, comment.Content), // allow-non-english: report JSON requires Chinese finding display text
 				SeverityZH: severityZH,
 				CategoryZH: categoryZH,
 			},
@@ -359,6 +375,13 @@ func materialCode(value, unavailableReason string) (report.Status, string, strin
 		return report.StatusNotCollected, "", unavailableReason
 	}
 	return report.StatusProvided, value, ""
+}
+
+func findingLabelStatus(value, unavailableReason string) (report.Status, string) {
+	if value == "" {
+		return report.StatusNotCollected, unavailableReason
+	}
+	return report.StatusProvided, ""
 }
 
 func findingLabels(severity, category string) (string, string) {

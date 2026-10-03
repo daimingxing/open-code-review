@@ -342,6 +342,85 @@ func TestMaterialFindingsSortsLineNumbersNumerically(t *testing.T) {
 	}
 }
 
+func TestBuildReportMaterialPreservesMissingFindingLabelFacts(t *testing.T) {
+	base := strings.Repeat("b", 40)
+	head := strings.Repeat("a", 40)
+	manifest := &session.RunManifest{
+		RunID:         "missing-labels-run",
+		TerminalState: session.StateComplete,
+		Repository:    session.ManifestRepository{IdentitySHA256: strings.Repeat("d", 64)},
+		Input: session.ManifestInput{
+			Mode: session.InputModeCommit, RequestedHead: "HEAD", ResolvedBase: base, ResolvedHead: head,
+			ExactRange: base + ".." + head, SourceArtifactSHA256: strings.Repeat("c", 64),
+		},
+		Coverage: session.Coverage{
+			Selected: []session.CoverageItem{}, Completed: []session.CoverageItem{}, Reused: []session.CoverageItem{},
+			Failed: []session.CoverageItem{}, Waived: []session.CoverageItem{},
+		},
+	}
+	started := time.Now()
+	cases := []struct {
+		name               string
+		severity           string
+		category           string
+		wantSeverityStatus report.Status
+		wantSeverityReason string
+		wantCategoryStatus report.Status
+		wantCategoryReason string
+		wantSeverityZH     string
+		wantCategoryZH     string
+		wantSummaryPart    string
+		wantErr            bool
+	}{
+		{name: "both missing", wantSeverityStatus: report.StatusNotCollected, wantSeverityReason: "原生审查结果未提供问题等级", wantCategoryStatus: report.StatusNotCollected, wantCategoryReason: "原生审查结果未提供问题类别", wantSeverityZH: "未提供", wantCategoryZH: "未提供", wantSummaryPart: "等级未提供类别未提供"}, // allow-non-english: fixture exercises missing finding labels
+		{name: "severity missing", category: "bug", wantSeverityStatus: report.StatusNotCollected, wantSeverityReason: "原生审查结果未提供问题等级", wantCategoryStatus: report.StatusProvided, wantCategoryReason: "", wantCategoryZH: "缺陷", wantSeverityZH: "未提供", wantSummaryPart: "等级未提供缺陷"}, // allow-non-english: fixture exercises missing finding labels
+		{name: "category missing", severity: "high", wantSeverityStatus: report.StatusProvided, wantSeverityReason: "", wantCategoryStatus: report.StatusNotCollected, wantCategoryReason: "原生审查结果未提供问题类别", wantSeverityZH: "高", wantCategoryZH: "未提供", wantSummaryPart: "高级类别未提供"}, // allow-non-english: fixture exercises missing finding labels
+		{name: "unknown labels", severity: "urgent", category: "unknown", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const sourceContent = "Original model finding text"
+			material, err := buildReportMaterial(manifest, "repo", []model.LlmComment{{
+				Path: "main.go", StartLine: 3, EndLine: 3, Severity: tc.severity, Category: tc.category, Content: sourceContent,
+			}}, started, started.Add(time.Second), "fake", "fake-model", nil)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("build material accepted unsupported non-empty labels")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("build material: %v", err)
+			}
+			finding := material.Findings[0]
+			if finding.Severity != tc.severity || finding.Category != tc.category || finding.SeverityStatus != tc.wantSeverityStatus || finding.SeverityReason != tc.wantSeverityReason || finding.CategoryStatus != tc.wantCategoryStatus || finding.CategoryReason != tc.wantCategoryReason {
+				t.Fatalf("material label facts = severity(%q,%q,%q) category(%q,%q,%q)", finding.Severity, finding.SeverityStatus, finding.SeverityReason, finding.Category, finding.CategoryStatus, finding.CategoryReason)
+			}
+			if finding.Display.SeverityZH != tc.wantSeverityZH || finding.Display.CategoryZH != tc.wantCategoryZH || !strings.Contains(finding.Display.SummaryZH, tc.wantSummaryPart) || finding.SourceContent != sourceContent {
+				t.Fatalf("material display/source = %+v / %q", finding.Display, finding.SourceContent)
+			}
+			target := filepath.Join(t.TempDir(), "finding.report.json")
+			if _, err := report.WriteMaterial(target, false, material); err != nil {
+				t.Fatalf("save normalized material: %v", err)
+			}
+			data, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved report.Material
+			if err := json.Unmarshal(data, &saved); err != nil {
+				t.Fatalf("decode saved material: %v", err)
+			}
+			if err := report.ValidateMaterial(saved); err != nil {
+				t.Fatalf("saved material validation: %v", err)
+			}
+			if saved.Findings[0].Severity != tc.severity || saved.Findings[0].Category != tc.category || saved.Findings[0].SeverityStatus != tc.wantSeverityStatus || saved.Findings[0].SeverityReason != tc.wantSeverityReason || saved.Findings[0].CategoryStatus != tc.wantCategoryStatus || saved.Findings[0].CategoryReason != tc.wantCategoryReason {
+				t.Fatalf("saved label facts = severity(%q,%q) category(%q,%q)", saved.Findings[0].Severity, saved.Findings[0].SeverityStatus, saved.Findings[0].Category, saved.Findings[0].CategoryStatus)
+			}
+		})
+	}
+}
+
 func TestDefaultReportPathSanitizesRangeRefs(t *testing.T) {
 	got := defaultReportPath("repo", requestedReportScope(reviewOptions{from: "release:1", to: "feature/x"}), time.Now())
 	if strings.Contains(filepath.Base(got), ":") || !strings.Contains(filepath.Base(got), "range-release-1-to-feature-x") {

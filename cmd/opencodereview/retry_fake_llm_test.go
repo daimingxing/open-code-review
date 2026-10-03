@@ -45,7 +45,7 @@ type fakeLLM struct {
 	rateLimitOnce map[string]bool
 	// hardFail lists files whose every attempt returns 402.
 	hardFail map[string]bool
-	// includeFinding makes each main task report one native code_comment first.
+	// includeFinding 控制每个主审查任务先返回一条原生 code_comment。 // allow-non-english: 测试夹具字段用途说明
 	includeFinding bool
 	findingPath    string
 	findingSent    map[string]bool
