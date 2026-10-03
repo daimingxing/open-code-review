@@ -23,7 +23,7 @@ Blocked by: 无，可立即开始
 ## 执行记录（2026-10-04）
 
 - 执行者：Codex 实施智能体。
-- 工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-01`；分支：`codex/review-report-01-knowledge`；基线：`d50f4dc2502edc510e2673b495ad4ac99871eedb`（`feature-review-report`）；实施提交：随本工单分支提交，最终 SHA 由交接消息提供。
+- 工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-01`；分支：`codex/review-report-01-knowledge`；基线：`d50f4dc2502edc510e2673b495ad4ac99871eedb`（`feature-review-report`）；复测资料及验收记录的实施提交：`877b0ae3f49bc53d8bebac6ecc0e14920811b3c9`。
 - 环境：Windows 11、PowerShell 7、OCR v1.12.11（a758d9c）、Node.js v22.22.2、filesystem MCP 2026.8.31、DeepSeek `deepseek-flash`。真实仓库及 `.ai_knowledge` 只读使用，未改其文件、忽略配置或未提交内容；未读取或输出全局配置中的凭据。
 - 隔离：在系统临时目录安装 filesystem MCP，并将全局 OCR 配置复制到临时隔离用户目录；只向该副本添加 `knowledge` MCP。每次真实审查的授权根目录为对应真实仓库的 `.ai_knowledge`，白名单为 `read_text_file`、`list_directory`、`search_files`、`get_file_info`、`list_allowed_directories`。全局配置未改。详见[复测命令与实际结果](../../../project-docs/mock/external-knowledge-01.md)、前后端 MCP 模板和规则样例。
 
