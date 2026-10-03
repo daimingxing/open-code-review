@@ -1,6 +1,6 @@
 # 工单 02：审查报告材料
 
-日期：2026-10-04。初始源码提交：`c9f1b70a39c7d0312d7822f16e7a9d2eb9fc9f26`；最终 Spec 修复提交待补录。验证对象为 `feature-review-report` 上包含最终修复提交的版本。
+日期：2026-10-04。初始源码提交：`c9f1b70a39c7d0312d7822f16e7a9d2eb9fc9f26`；最终 Spec 修复提交：`4e707324b7fbdca14d2b63089ed36ce0d5e08a01`。验证对象为 `feature-review-report` 上包含最终修复提交的版本。
 
 ## 目的与前提
 
@@ -16,7 +16,7 @@
 $ErrorActionPreference = 'Stop'
 Set-Location 'D:\WorkPlace\open-code-review'
 git switch feature-review-report
-$sourceCommit = '待最终修复提交生成后补录'
+$sourceCommit = '4e707324b7fbdca14d2b63089ed36ce0d5e08a01'
 git merge-base --is-ancestor $sourceCommit HEAD
 if ($LASTEXITCODE -ne 0) { throw '集成分支不包含工单 02 源码提交' }
 go version
@@ -63,7 +63,7 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 
 ## 验证记录
 
-2026-10-04，Windows 11、PowerShell 7、Go 1.25.14：初始实现阶段完整 `go test ./... -count=1` 退出码 0。缺失标签状态契约实现后，`go test ./cmd/opencodereview ./internal/report -count=1` 退出码 0（分别 152.7s 与 2.2s）；`make check` 在该实现版本退出码 0，license 检查通过，659 个扫描源文件无未豁免文本，`go mod tidy`、全仓 gofmt 与 go vet 通过。之后新增 schema 展示映射一致性校验和对应回归断言，最终定向测试退出码 0，最终 `make english-check` 退出码 0。最终源码 SHA 在修复提交后补录。
+2026-10-04，Windows 11、PowerShell 7、Go 1.25.14：初始实现阶段完整 `go test ./... -count=1` 退出码 0。缺失标签状态契约实现后，`go test ./cmd/opencodereview ./internal/report -count=1` 退出码 0（分别 152.7s 与 2.2s）；`make check` 在该实现版本退出码 0，license 检查通过，659 个扫描源文件无未豁免文本，`go mod tidy`、全仓 gofmt 与 go vet 通过。随后增加 schema 展示映射一致性校验及回归测试，最终定向测试退出码 0，最终 `make english-check` 退出码 0。最终源码 SHA 为 `4e707324b7fbdca14d2b63089ed36ce0d5e08a01`。
 
 同日 `make test` 在默认 `CGO_ENABLED=0` 下因 race 检测要求 CGO 而失败；设为 `CGO_ENABLED=1` 后因当前 `PATH` 没有 `gcc` 而构建失败。因此本机未验证 race 测试。`go test ./... -count=1` 不启用 race，单独记录为普通测试结果。
 
