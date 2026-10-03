@@ -26,4 +26,5 @@ Blocked by: [02：单提交审查生成独立报告材料](02-commit-report-mate
 - 已运行：`go test ./cmd/opencodereview -run 'Test(DefaultReportPathIncludesSanitizedRangeLabelsAndStartTime|CollectBranchGitStatisticsUsesResolvedRangeAndDistinctGitActors|ReviewE2E_ReportRangeUsesMergeBaseAndPreservesNativeCoverage|ReviewE2E_RangeWithoutReportKeepsNativeBehavior)' -count=1`，4 个测试通过。临时仓库包含 `release/main` 与 `feature/report` 分叉、两个 feature 提交及独立 release 提交；断言 merge-base、完整 SHA、最终两文件六行净增、逐提交累计、作者/提交者差异、覆盖集合和无报告原生行为。
 - 已验证：`go test ./... -count=1` 通过（5128 个测试/25 包），`go vet ./...` 通过，`make check` 通过（license、english-check、`go mod tidy`、gofmt 和 vet 均通过）。`make test` 的 race 前提仍需 CGO 与 GCC，未在 Windows 本机验证。复测命令见[分支报告材料复测记录](../../../project-docs/mock/review-report-branch-material-03.md)。
 - 独立 Spec 审查：实现逻辑和验收条件通过，无伪造事实的阻塞问题；复核指出的 coverage 断言过弱已改为完整集合 `reflect.DeepEqual`，复测记录与执行记录状态已统一。独立 Standards 审查：无阻塞级代码或安全问题，建议通过。
+- 主线程集成：提交 `5fccc98` 已以 Merge 提交 `15b5f47` 集成到 `feature-review-report`；集成前分支普通测试、`go vet` 与 `make check` 均通过。后续整体验收仍需在包含 04–09 的最终集成版本重复执行。
 
