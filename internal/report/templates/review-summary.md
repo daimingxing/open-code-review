@@ -13,7 +13,7 @@
 ## 文档要求
 
 - 输出 `<!doctype html>` 开头的 UTF-8 单文件，使用 `<html lang="zh-CN">`、`<meta charset="utf-8">`、标题、正文和唯一 `<main>`。
-- 模型只输出语义 HTML 内容，不输出 `<style>`、`style` 属性或外部资源。程序加入固定内联样式，负责标题层次、间距、长标识断行和窄屏布局；不设置事件处理器，不使用链接、表单、iframe、SVG 或活动内容。
+- 模型只输出语义 HTML 内容，不输出 `<style>`、`style` 属性或外部资源。元素仅可使用 `html`、`head`、`body`、`title`、`meta`、`main`、`section`、`h1`–`h6`、`article`、`div`、`span`、`strong`、`em`、`b`、`i`、`p`、`pre`、`code`、`ul`、`ol`、`li`、`dl`、`dt`、`dd`、`blockquote`、`br`、`hr`、`table`、`thead`、`tbody`、`tr`、`th`、`td`、`output`、`time`、`mark`、`a`；不支持其他元素。程序加入固定内联样式，负责标题层次、间距、长标识断行和窄屏布局；不设置事件处理器、表单、iframe、SVG 或活动内容。
 - 页面适合桌面和窄屏阅读，采用清晰标题、间距和边框层次；信息不只靠颜色表达。
 - `<main>` 必须直接放在 `<body>` 内并带 `data-review-status` 和 `data-run-id`，属性值与材料完全一致。所有可见报告内容都放在 `<main>` 内，`<body>` 中不得有其他可见内容。
 - 按次序输出且各输出一次以下章节：`overview`、`quality-coverage`、`finding-details`、`changes`、`achievements`、`people`、`governance`、`limitations`、`sources`。每个章节使用 `<section data-section="名称">` 并有标题。

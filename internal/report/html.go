@@ -68,6 +68,14 @@ var allowedHTMLLabels = map[string]struct{}{
 	"\u5b8c\u6210": {}, "\u5931\u8d25": {}, "\u8df3\u8fc7": {}, "\u590d\u7528": {},
 }
 
+var allowedHTMLTags = map[string]struct{}{
+	"html": {}, "head": {}, "body": {}, "title": {}, "meta": {}, "style": {}, "main": {}, "section": {},
+	"h1": {}, "h2": {}, "h3": {}, "h4": {}, "h5": {}, "h6": {}, "div": {}, "span": {}, "strong": {},
+	"em": {}, "b": {}, "i": {}, "p": {}, "pre": {}, "code": {}, "ul": {}, "ol": {}, "li": {}, "dl": {},
+	"dt": {}, "dd": {}, "blockquote": {}, "br": {}, "hr": {}, "table": {}, "thead": {}, "tbody": {},
+	"tr": {}, "th": {}, "td": {}, "output": {}, "time": {}, "mark": {}, "a": {}, "article": {},
+}
+
 func ValidateHTMLDocument(document string, material Material) error {
 	if err := ValidateMaterial(material); err != nil {
 		return fmt.Errorf("validate report material: %w", err)
@@ -101,6 +109,9 @@ func ValidateHTMLDocument(document string, material Material) error {
 		}
 		if node.Type == html.ElementNode {
 			tag := strings.ToLower(node.Data)
+			if _, allowed := allowedHTMLTags[tag]; !allowed {
+				return fmt.Errorf("HTML document contains unsupported <%s> content", tag)
+			}
 			switch tag {
 			case "html":
 				if htmlNode != nil {
@@ -114,8 +125,6 @@ func ValidateHTMLDocument(document string, material Material) error {
 				headNode = node
 			case "body":
 				bodyNode = node
-			case "script", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "link", "img", "picture", "source", "video", "audio", "track", "svg", "math", "base", "template", "details", "dialog":
-				return fmt.Errorf("HTML document contains disallowed <%s> content", tag)
 			case "main":
 				if mainNode != nil {
 					return fmt.Errorf("HTML document must contain one main element")

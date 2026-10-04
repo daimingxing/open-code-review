@@ -165,8 +165,12 @@ func TestValidateHTMLDocumentRejectsDefaultHiddenContainers(t *testing.T) {
 	content := validHTMLDocument(material)
 	firstFinding := findingHTML(material.Findings[0])
 	for name, tag := range map[string]string{
-		"closed details": "details",
-		"closed dialog":  "dialog",
+		"closed details":   "details",
+		"closed dialog":    "dialog",
+		"canvas fallback":  "canvas",
+		"noscript content": "noscript",
+		"noembed content":  "noembed",
+		"noframes content": "noframes",
 	} {
 		t.Run(name, func(t *testing.T) {
 			hidden := strings.Replace(content, firstFinding, "<"+tag+">"+firstFinding+"</"+tag+">", 1)
