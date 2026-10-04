@@ -21,9 +21,9 @@ Blocked by: [02：单提交审查生成独立报告材料](02-commit-report-mate
 
 ## 执行记录（2026-10-04）
 
-- 执行者：主线程 Codex（原实施上下文长时间未提交后接续）。工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-05-enrich`；分支：`codex/review-report-05-enrich`；基线：`8251970`（已集成工单 04）。
-- 交付范围：单提交模式从 `git show` 和 `git diff-tree --name-status -z` 取得提交、文件、模块、作者和提交者事实；成果摘要明确仅依据 Git 事实。规则哈希与外部工具调用按成功、部分失败、失败和未观察标记知识来源；成功工具调用不被表述为知识正文已正确应用。非提交模式成果和人员保持 `not_collected`，结构检查仍为 `not_collected`，未增加全仓扫描或责任推断。
-- 已运行：`go test ./cmd/opencodereview -run 'Test(ReviewE2E_CommitReportContainsEvidenceBackedEnrichment|KnowledgeSourcesSectionDistinguishesObservedPartialAndFailure|EnrichReportSectionsDoesNotInferNonCommitResults)' -count=1`，3 个测试通过。复测命令见[成果、人员和知识来源复测记录](../../../project-docs/mock/review-report-enrichment-05.md)。
-- 独立 Spec 审查发现并促成三项修复：MCP/外部工具失败计数会同时存在于总调用计数中，现按失败数扣除后区分全部失败与部分失败；merge commit 文件现按原生 first-parent 基线统计；补齐材料整理耗时和模型用量适用状态。非原生工具调用不再被断言为知识读取，只作为观察到的工具活动，知识正文版本与正确应用仍标 `not_observed`。新增 merge first-parent、全部失败真实计数及不传 `--report` 原生兼容测试。
-- 已验证：定向测试 5 个通过；修复后全量普通测试 `go test ./... -count=1` 通过（5137 个测试/25 包），`go vet ./...` 和 `make check` 通过（665 个源文件英文检查、license、gofmt、tidy 和 vet）。材料保留原生 `ProjectSummary`（如有）及来源/未采集状态。独立 Standards 复核、修复后 Spec 复核待完成；race 仍受 Windows CGO/GCC 前提限制。
+- 工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-05-enrich`；分支：`codex/review-report-05-enrich`。验证前将集成基线 `feature-review-report` 的 `3c09908` 合入；测试时 `HEAD` 为合并提交 `f1da4548`，被测实现还包含当时工作树中的未提交改动。
+- 单提交材料用 `git show` 获取提交元数据；文件清单和补丁依据实际运行的 root `git diff-tree` 或 first-parent `git diff`/`git show` 命令，并将完整命令写入 `evidence`。模型成果归纳只接收有界 Git diff、提交及文件事实，不接收问题列表、需求或知识正文；模型输出路径与模块须匹配 Git 事实。模型失败或输出越界时保留 Git 事实并标失败，空提交跳过模型。
+- 知识来源只观察 MCP 的 `read_text_file`、`read_multiple_files` 实际响应；目录/搜索工具不作为正文版本。材料只写来源授权根下的相对标识、范围、状态、返回字节数和原始 MCP 响应的 SHA-256，不保存响应正文。远端或无法映射来源的读取保留摘要并标 `source_unknown`；受限请求标 `partial`；MCP `IsError`、调用错误、配置知识工具不可用和服务启动失败记为失败；非知识 MCP 服务失败不归因到知识来源。批量读取身份保留请求路径顺序，顺序不同的调用作为不同来源身份，不推断同一正文发生版本变化。同一来源同次返回不同摘要时披露版本变化。`application_status` 仍为 `not_observed`，不代表已证明模型正确应用知识。
+- 非提交模式成果与人员不推断；结构检查仍未提供；无 `--report` 时不启用观察器，不改变原生调用行为。报告记录 Git 采集时间与模型摘要耗时、token 用量和失败限制。
+- 最终验证命令与结果详见[成果、人员和知识来源复测记录](../../../project-docs/mock/review-report-enrichment-05.md)：聚焦测试 exit 0；`go test ./...` 为 25/25 包通过；`make check` exit 0（license、english-check 665 个源文件、tidy、gofmt、vet）。race 未运行；本机 Windows 缺少 CGO/GCC 前提。实现与测试完成，独立复审无阻塞通过，待提交和集成。
 
