@@ -62,7 +62,7 @@ const path = require('node:path');
       await page.goto(pathToFileURL(testCase.file).href, { waitUntil: 'load' });
       const desktop = await page.evaluate(() => {
         const units = [...document.querySelectorAll('section[data-section="overview"] > div[data-review-unit-id]')];
-        const findings = [...document.querySelectorAll('section[data-section="finding-details"] article[data-finding-id]')];
+        const findings = [...document.querySelectorAll('section[data-section="finding-details"] [data-finding-id]')];
         const findingOwners = new Map();
         for (const finding of findings) {
           const id = finding.getAttribute('data-finding-id');
@@ -122,7 +122,7 @@ const path = require('node:path');
       await page.screenshot({ path: path.join(path.dirname(testCase.file), `${testCase.name}-desktop-viewport.png`) });
       await page.screenshot({ path: path.join(path.dirname(testCase.file), `${testCase.name}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 375, height: 812 });
-      const mobile = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth, findings: document.querySelectorAll('section[data-section="finding-details"] article[data-finding-id]').length, facts: document.querySelectorAll('[data-fact]').length }));
+      const mobile = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth, findings: document.querySelectorAll('section[data-section="finding-details"] [data-finding-id]').length, facts: document.querySelectorAll('[data-fact]').length }));
       if (mobile.scrollWidth !== mobile.innerWidth || mobile.findings !== desktop.findings || mobile.facts !== desktop.facts) throw new Error(`${testCase.name}: mobile content mismatch`);
       await page.screenshot({ path: path.join(path.dirname(testCase.file), `${testCase.name}-mobile.png`), fullPage: true });
       if (pageErrors.length !== 0 || requests.some(url => !url.startsWith('file:'))) throw new Error(`${testCase.name}: page error or non-local request`);

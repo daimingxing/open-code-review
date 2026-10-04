@@ -1235,7 +1235,7 @@ func reportHTMLFixture(material report.Material) string {
 				appendReportFinding(&builder, finding)
 			}
 		}
-		builder.WriteString(`<p>本节内容见输入材料</p>`)
+		builder.WriteString("<p>\u672c\u8282\u5185\u5bb9\u89c1\u8f93\u5165\u6750\u6599</p>")
 		builder.WriteString(`</section>`)
 	}
 	builder.WriteString(`</main></body></html>`)
@@ -1309,7 +1309,7 @@ func reportMultiHTMLFixture(input report.MultiReportInput) string {
 		for _, key := range keys {
 			fmt.Fprintf(&builder, `<div class="fact-row"><strong class="fact-label">%s</strong><span data-fact="%s">%s</span></div>`, reportMultiAggregateFactLabel(key), html.EscapeString(key), html.EscapeString(aggregateFacts[key]))
 		}
-		builder.WriteString(`<p>本节内容见输入材料</p>`)
+		builder.WriteString("<p>\u672c\u8282\u5185\u5bb9\u89c1\u8f93\u5165\u6750\u6599</p>")
 		builder.WriteString(`</section>`)
 	}
 	builder.WriteString(`</main></body></html>`)

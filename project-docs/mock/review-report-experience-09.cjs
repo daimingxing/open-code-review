@@ -29,7 +29,7 @@ function requireCheck(value, message) {
       const fileURL = pathToFileURL(file).href;
       await page.goto(fileURL, { waitUntil: 'load' });
       const baseline = await page.evaluate(() => ({
-        findings: document.querySelectorAll('article[data-finding-id]').length,
+        findings: document.querySelectorAll('[data-finding-id]').length,
         facts: document.querySelectorAll('[data-fact]').length,
         unsafe: document.querySelectorAll('script,link,img,iframe,object,embed,form,svg,video,audio,canvas,dialog,noscript,noembed,noframes,[onclick],[onload],[src]').length,
         externalLinks: [...document.querySelectorAll('[href]')].filter(node => !node.getAttribute('href').startsWith('#')).length
@@ -48,7 +48,7 @@ function requireCheck(value, message) {
             await options[index].check();
             const correct = await page.evaluate(({ group, index }) => {
               const attribute = `data-review-${group}-index`;
-              const nodes = [...document.querySelectorAll('article[data-finding-id]')];
+              const nodes = [...document.querySelectorAll('[data-finding-id]')];
               return nodes.every(node => (getComputedStyle(node).display !== 'none') === (node.getAttribute(attribute) === String(index - 1)));
             }, { group, index });
             requireCheck(correct, `${name}/${width}/${group}: 筛选与事实归属不一致`); // allow-non-english: 中文复测诊断
@@ -77,7 +77,7 @@ function requireCheck(value, message) {
         const dimensions = await page.evaluate(() => ({
           width: innerWidth,
           scrollWidth: document.documentElement.scrollWidth,
-          findings: document.querySelectorAll('article[data-finding-id]').length,
+          findings: document.querySelectorAll('[data-finding-id]').length,
           facts: document.querySelectorAll('[data-fact]').length
         }));
         requireCheck(dimensions.scrollWidth <= width && dimensions.findings === baseline.findings && dimensions.facts === baseline.facts, `${name}/${width}: 横溢或事实变动`); // allow-non-english: 中文复测诊断

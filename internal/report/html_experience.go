@@ -16,7 +16,7 @@ func addReportExperience(document string, materials []Material, unitIDs []string
 		return "", fmt.Errorf("parse report HTML: %w", err)
 	}
 	var mainNode, styleNode *html.Node
-	var articles []*html.Node
+	var findings []*html.Node
 	var visit func(*html.Node)
 	visit = func(node *html.Node) {
 		if node.Type == html.ElementNode {
@@ -25,10 +25,9 @@ func addReportExperience(document string, materials []Material, unitIDs []string
 				mainNode = node
 			case "style":
 				styleNode = node
-			case "article":
-				if attribute(node, "data-finding-id") != "" {
-					articles = append(articles, node)
-				}
+			}
+			if attribute(node, "data-finding-id") != "" {
+				findings = append(findings, node)
 			}
 		}
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -48,25 +47,25 @@ func addReportExperience(document string, materials []Material, unitIDs []string
 	for _, category := range categories {
 		categoryIndexes[category.name] = category.index
 	}
-	for _, article := range articles {
+	for _, finding := range findings {
 		unitIndex := 0
 		if len(unitIDs) > 0 {
-			owner := nearestReviewUnitID(article)
+			owner := nearestReviewUnitID(finding)
 			var ok bool
 			unitIndex, ok = unitIndexes[owner]
 			if !ok {
 				return "", fmt.Errorf("finding has unknown review-unit ownership")
 			}
 		}
-		setAttribute(article, "data-review-unit-index", fmt.Sprint(unitIndex))
-		severityIndex := reportSeverityIndex(attribute(article, "data-severity"))
-		setAttribute(article, "data-review-severity-index", fmt.Sprint(severityIndex))
-		categoryIndex, ok := categoryIndexes[attribute(article, "data-category")]
+		setAttribute(finding, "data-review-unit-index", fmt.Sprint(unitIndex))
+		severityIndex := reportSeverityIndex(attribute(finding, "data-severity"))
+		setAttribute(finding, "data-review-severity-index", fmt.Sprint(severityIndex))
+		categoryIndex, ok := categoryIndexes[attribute(finding, "data-category")]
 		if !ok {
 			return "", fmt.Errorf("finding has unknown category")
 		}
-		setAttribute(article, "data-review-category-index", fmt.Sprint(categoryIndex))
-		if err := addFindingDisclosure(article); err != nil {
+		setAttribute(finding, "data-review-category-index", fmt.Sprint(categoryIndex))
+		if err := addFindingDisclosure(finding); err != nil {
 			return "", err
 		}
 	}
@@ -85,46 +84,32 @@ func addReportExperience(document string, materials []Material, unitIDs []string
 	return builder.String(), nil
 }
 
-func addFindingDisclosure(article *html.Node) error {
-	var summaryRow *html.Node
-	for child := article.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type == html.ElementNode && hasClass(child, "fact-row") && containsFindingFact(child, "summary_zh") {
-			summaryRow = child
-			break
-		}
-	}
-	if summaryRow == nil {
-		return fmt.Errorf("finding is missing its summary fact row")
+func addFindingDisclosure(finding *html.Node) error {
+	summaryContent := findingSummaryNode(finding)
+	if summaryContent == nil {
+		return fmt.Errorf("finding is missing a visible Chinese summary")
 	}
 	details := &html.Node{Type: html.ElementNode, Data: "details", Attr: []html.Attribute{
 		{Key: "class", Val: "finding-details"}, {Key: "open", Val: ""},
 	}}
 	summary := &html.Node{Type: html.ElementNode, Data: "summary"}
-	article.RemoveChild(summaryRow)
-	summary.AppendChild(summaryRow)
+	if summaryContent == finding {
+		summary.AppendChild(&html.Node{Type: html.TextNode, Data: strings.TrimSpace(nodeText(summaryContent))})
+	} else {
+		summaryContent.Parent.RemoveChild(summaryContent)
+		summary.AppendChild(summaryContent)
+	}
 	content := &html.Node{Type: html.ElementNode, Data: "div", Attr: []html.Attribute{{Key: "class", Val: "finding-detail-content"}}}
-	for child := article.FirstChild; child != nil; {
+	for child := finding.FirstChild; child != nil; {
 		next := child.NextSibling
-		article.RemoveChild(child)
+		finding.RemoveChild(child)
 		content.AppendChild(child)
 		child = next
 	}
 	details.AppendChild(summary)
 	details.AppendChild(content)
-	article.AppendChild(details)
+	finding.AppendChild(details)
 	return nil
-}
-
-func containsFindingFact(node *html.Node, name string) bool {
-	if node.Type == html.ElementNode && attribute(node, "data-fact") == name {
-		return true
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if containsFindingFact(child, name) {
-			return true
-		}
-	}
-	return false
 }
 
 func buildReportFilters(materials []Material, unitIDs []string, categories []reportFilterCategory) *html.Node {

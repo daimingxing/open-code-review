@@ -48,8 +48,8 @@ const path = require('node:path');
       title: document.title,
       lang: document.documentElement.lang,
       sections: document.querySelectorAll('main section[data-section]').length,
-      findings: document.querySelectorAll('article[data-finding-id]').length,
-      labeledFacts: document.querySelectorAll('article[data-finding-id] .fact-row').length,
+      findings: document.querySelectorAll('[data-finding-id]').length,
+      labeledFacts: document.querySelectorAll('[data-finding-id] .fact-row').length,
       stats: document.querySelectorAll('[data-stat]').length,
       externalElements: document.querySelectorAll('script,link,img,iframe,object,embed,form,svg,video,audio,canvas,details,dialog,noscript,noembed,noframes').length,
       scrollWidth: document.documentElement.scrollWidth,
@@ -61,8 +61,8 @@ const path = require('node:path');
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth,
       mainWidth: Math.round(document.querySelector('main').getBoundingClientRect().width),
-      findings: document.querySelectorAll('article[data-finding-id]').length,
-      labeledFacts: document.querySelectorAll('article[data-finding-id] .fact-row').length
+      findings: document.querySelectorAll('[data-finding-id]').length,
+      labeledFacts: document.querySelectorAll('[data-finding-id] .fact-row').length
     }));
     await page.screenshot({ path: path.join(path.dirname(process.env.OCR_REPORT_HTML_EVIDENCE_FILE), 'mobile.png'), fullPage: true });
     console.log(JSON.stringify({ desktop, mobile, pageErrors, requests }, null, 2));
