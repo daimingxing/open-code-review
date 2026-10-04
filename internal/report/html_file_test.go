@@ -114,3 +114,17 @@ func TestWriteHTMLRejectsDefaultHiddenContainersAndDoesNotPublish(t *testing.T) 
 		})
 	}
 }
+
+func TestWriteHTMLRejectsNonArticleFindingAndDoesNotPublish(t *testing.T) {
+	material := validHTMLMaterial()
+	document := validHTMLModelDocument(material)
+	document = strings.Replace(document, `<article data-finding-id=`, `<div data-finding-id=`, 1)
+	document = strings.Replace(document, `</article>`, `</div>`, 1)
+	target := filepath.Join(t.TempDir(), "report.html")
+	if _, err := WriteHTML(target, false, document, material); err == nil {
+		t.Fatal("WriteHTML accepted a finding without an article element")
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("rejected non-article finding left a final file: %v", err)
+	}
+}

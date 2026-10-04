@@ -167,6 +167,9 @@ func ValidateHTMLDocument(document string, material Material) error {
 				stats[value] = node
 			}
 			if value := attribute(node, "data-finding-id"); value != "" {
+				if !strings.EqualFold(tag, "article") {
+					return fmt.Errorf("HTML finding %q must use an article element", value)
+				}
 				if _, exists := findings[value]; exists {
 					return fmt.Errorf("HTML document duplicates finding %q", value)
 				}

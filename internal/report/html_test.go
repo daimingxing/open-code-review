@@ -37,6 +37,10 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 		{"incorrect finding label", func(value string) string {
 			return strings.Replace(value, `<strong class="fact-label">严重等级</strong><span data-fact="severity_zh">`, `<strong class="fact-label">原因</strong><span data-fact="severity_zh">`, 1)
 		}},
+		{"finding is not an article", func(value string) string {
+			value = strings.Replace(value, `<article data-finding-id=`, `<div data-finding-id=`, 1)
+			return strings.Replace(value, `</article>`, `</div>`, 1)
+		}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
