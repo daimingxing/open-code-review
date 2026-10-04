@@ -51,8 +51,11 @@ type branchGitIdentity struct {
 }
 
 func branchGitStatisticsSection(runner *gitcmd.Runner, repoDir string, scope report.Scope) report.Section {
-	if scope.Mode != session.InputModeRange {
-		return notCollectedSection("本次输入不是分支比较，未计算分支 Git 统计") // allow-non-english: report JSON requires Chinese user-facing facts
+	if scope.Mode != session.InputModeRange && scope.Mode != session.InputModeCommit {
+		return notCollectedSection("本次输入不是提交或分支比较，未计算 Git 统计") // allow-non-english: report JSON requires Chinese user-facing facts
+	}
+	if scope.Mode == session.InputModeCommit && scope.ResolvedBase.Status == report.StatusNotApplicable {
+		return notCollectedSection("根提交没有父提交，未计算基于父提交的 Git 统计") // allow-non-english: report JSON requires Chinese user-facing facts
 	}
 	if scope.ResolvedBase.Status != report.StatusProvided || scope.ResolvedHead.Status != report.StatusProvided {
 		return report.Section{Status: report.StatusFailed, Reason: "原生审查未解析出完整的分支比较提交范围，无法计算 Git 统计"} // allow-non-english: report JSON requires Chinese failure reasons
