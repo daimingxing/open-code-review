@@ -148,28 +148,29 @@ func TestReviewE2E_ReportFindingAndNativeJSONAreIndependent(t *testing.T) {
 }
 
 func TestReviewE2E_ReportSaveFailurePreservesNativeOutput(t *testing.T) {
-	repoDir := reportMaterialTestRepo(t)
-	startFakeLLM(t, newFakeLLM())
-	nativePath := filepath.Join(repoDir, "native.json")
-	reportPath := filepath.Join(repoDir, "existing.report.json")
-	if err := os.WriteFile(reportPath, []byte("keep existing report"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, stderr, err := runReportReview(t, "--repo", repoDir, "--commit", "HEAD", "--output", nativePath, "--format", "json", "--report", reportPath)
-	if err == nil || !strings.Contains(err.Error(), "save report material") {
-		t.Fatalf("review error = %v, want save report material failure\nstderr: %s", err, stderr)
-	}
-	data, readErr := os.ReadFile(nativePath)
-	if readErr != nil {
-		t.Fatalf("native output was not preserved after report failure: %v", readErr)
-	}
-	var native jsonOutput
-	if err := json.Unmarshal(data, &native); err != nil || native.Manifest == nil {
-		t.Fatalf("native output invalid after report failure: error=%v data=%s", err, data)
-	}
-	kept, readErr := os.ReadFile(reportPath)
-	if readErr != nil || string(kept) != "keep existing report" {
-		t.Fatalf("existing explicit report changed: content=%q error=%v", kept, readErr)
+	for _, mode := range reportReviewModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repoDir := reportReviewRepoForMode(t, mode)
+			startFakeLLM(t, newFakeLLM())
+			nativePath := filepath.Join(t.TempDir(), "native.json")
+			reportPath := filepath.Join(t.TempDir(), "existing.report.json")
+			if err := os.WriteFile(reportPath, []byte("keep existing report"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := reportReviewArgs(repoDir, nativePath, reportPath, mode)
+			_, stderr, err := runReportReview(t, args...)
+			if err == nil || !strings.Contains(err.Error(), "save report material") {
+				t.Fatalf("review error = %v, want save report material failure\nstderr: %s", err, stderr)
+			}
+			native := readNativeReview(t, nativePath)
+			if native.Status != string(session.StateComplete) {
+				t.Fatalf("native result status = %q, want preserved complete result", native.Status)
+			}
+			kept, readErr := os.ReadFile(reportPath)
+			if readErr != nil || string(kept) != "keep existing report" {
+				t.Fatalf("existing explicit report changed: content=%q error=%v", kept, readErr)
+			}
+		})
 	}
 }
 

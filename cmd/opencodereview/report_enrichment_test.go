@@ -200,6 +200,37 @@ func TestReviewE2E_ReportMarksRestrictedMCPReadPartial(t *testing.T) {
 	}
 }
 
+func TestReviewE2E_ReportKnowledgeFailurePreservesCodeFinding(t *testing.T) {
+	repoDir := reportMaterialTestRepo(t)
+	srv := newFakeLLM()
+	srv.includeFinding = true
+	srv.findingPath = "main.go"
+	startFakeLLM(t, srv)
+	knowledgePath := filepath.Join(t.TempDir(), "missing.md")
+	configureReportFilesystemMCP(t, filepath.Dir(knowledgePath), false)
+	srv.setKnowledgePath(knowledgePath, false)
+	reportPath := filepath.Join(t.TempDir(), "report.json")
+	stdout, stderr, err := runReportReview(t, "--repo", repoDir, "--commit", "HEAD", "--format", "json", "--report", reportPath, "--no-filter")
+	if err != nil {
+		t.Fatalf("knowledge read failure should not fail code review: %v\nstderr: %s", err, stderr)
+	}
+	var native jsonOutput
+	if err := json.Unmarshal([]byte(stdout), &native); err != nil {
+		t.Fatalf("decode native output: %v\n%s", err, stdout)
+	}
+	material := readReportMaterial(t, reportPath)
+	if native.Manifest == nil || native.Status != string(session.StateComplete) || len(native.Comments) == 0 || len(material.Findings) != len(native.Comments) {
+		t.Fatalf("knowledge failure erased or hid supported code finding: native status=%q comments=%d material status=%q findings=%d", native.Status, len(native.Comments), material.Review.Status, len(material.Findings))
+	}
+	var knowledge knowledgeMaterial
+	if err := json.Unmarshal(material.Sections.KnowledgeSources.Data, &knowledge); err != nil {
+		t.Fatalf("decode knowledge evidence: %v", err)
+	}
+	if knowledge.Status != "failed" || knowledge.ApplicationStatus != "not_observed" || len(knowledge.Observations) != 1 || knowledge.Observations[0].Status != "failed" {
+		t.Fatalf("missing knowledge was not reported as unavailable and unapplied: %+v", knowledge)
+	}
+}
+
 func TestReviewE2E_ReportSummaryFailureKeepsGitEvidenceAndUsage(t *testing.T) {
 	repoDir := reportMaterialTestRepo(t)
 	srv := newFakeLLM()
