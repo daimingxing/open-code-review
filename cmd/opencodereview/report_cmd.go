@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -45,27 +46,58 @@ func newReportCommand() *cobra.Command {
 			return runHTMLReport(cmd, *opts)
 		},
 	}
-	cmd.Flags().StringArrayVar(&opts.inputs, "input", nil, "report material JSON input (exactly one for this command)")
+	cmd.Flags().StringArrayVar(&opts.inputs, "input", nil, "report material JSON input (repeat to combine review units)")
 	cmd.Flags().StringVar(&opts.template, "template", report.DefaultHTMLTemplate, "report template name")
 	cmd.Flags().StringVar(&opts.output, "output", "", "HTML output file path")
 	return cmd
 }
 
 func runHTMLReport(cmd *cobra.Command, opts reportOptions) error {
-	if len(opts.inputs) != 1 || strings.TrimSpace(opts.inputs[0]) == "" {
-		return fmt.Errorf("--input must be provided exactly once")
+	if len(opts.inputs) == 0 {
+		return fmt.Errorf("--input must be provided at least once")
 	}
+	for index, path := range opts.inputs {
+		if strings.TrimSpace(path) == "" {
+			return fmt.Errorf("--input %d must not be empty", index+1)
+		}
+	}
+	isMulti := len(opts.inputs) > 1
 	templateText, err := report.HTMLTemplate(opts.template)
 	if err != nil {
 		return err
 	}
-	input, err := readReportMaterialInput(opts.inputs[0])
-	if err != nil {
-		return err
+	if isMulti {
+		templateText, err = report.MultiHTMLTemplate(opts.template)
+		if err != nil {
+			return err
+		}
 	}
-	material, err := report.DecodeMaterial(input)
-	if err != nil {
-		return err
+	materials := make([]report.Material, 0, len(opts.inputs))
+	var input []byte
+	for _, path := range opts.inputs {
+		data, err := readReportMaterialInput(path)
+		if err != nil {
+			return err
+		}
+		material, err := report.DecodeMaterial(data)
+		if err != nil {
+			return err
+		}
+		materials = append(materials, material)
+		if !isMulti {
+			input = data
+		}
+	}
+	var multiInput report.MultiReportInput
+	if isMulti {
+		multiInput, err = report.NewMultiReportInput(materials)
+		if err != nil {
+			return err
+		}
+		input, err = json.Marshal(multiInput)
+		if err != nil {
+			return fmt.Errorf("encode in-memory multi-report input: %w", err)
+		}
 	}
 	configPath, err := defaultConfigPath()
 	if err != nil {
@@ -137,7 +169,12 @@ func runHTMLReport(cmd *cobra.Command, opts reportOptions) error {
 		}
 		target = filepath.Join(".", "report-"+clock().Local().Format("2006-01-02")+".html")
 	}
-	written, err := report.WriteHTML(target, automatic, content, material)
+	var written string
+	if isMulti {
+		written, err = report.WriteMultiHTML(target, automatic, content, multiInput)
+	} else {
+		written, err = report.WriteHTML(target, automatic, content, materials[0])
+	}
 	if err != nil {
 		return err
 	}
