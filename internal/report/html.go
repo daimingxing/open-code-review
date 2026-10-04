@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -32,7 +33,18 @@ section:not([data-section="finding-details"]) > div[data-review-unit-id] { margi
 article h3 { margin-top: 0; }
 pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fact-row pre { margin: 0; }
+.report-filters { display: grid; gap: .75rem; margin: 1rem 0 1.5rem; }
+.report-filters fieldset { min-width: 0; margin: 0; padding: .65rem .8rem; border: 1px solid #aeb7c0; border-radius: 4px; }
+.report-filters legend { padding: 0 .25rem; font-weight: 700; }
+.report-filters label { display: inline-flex; align-items: center; gap: .35rem; margin: .25rem .9rem .25rem 0; cursor: pointer; }
+.report-filters input { accent-color: #176b74; }
+.report-filters input:focus-visible, summary:focus-visible { outline: 3px solid #176b74; outline-offset: 3px; }
+details.finding-details { margin: .5rem 0; }
+details.finding-details > summary { cursor: pointer; border-radius: 2px; }
+details.finding-details > summary .fact-row { margin: 0; }
+details.finding-details[open] > .finding-detail-content { padding-top: .25rem; }
 @media (max-width: 600px) { body { padding: 1rem; } .fact-row { grid-template-columns: minmax(0, 1fr); } }
+@media print { body { max-width: none; padding: 0; color: #000; } .report-filters { display: none !important; } section, article, .fact-row { break-inside: avoid; page-break-inside: avoid; } details.finding-details:not([open]) > .finding-detail-content { display: block !important; } details.finding-details > summary { list-style: none; } }
 `
 
 var (
@@ -76,6 +88,7 @@ var allowedHTMLTags = map[string]struct{}{
 	"em": {}, "b": {}, "i": {}, "p": {}, "pre": {}, "code": {}, "ul": {}, "ol": {}, "li": {}, "dl": {},
 	"dt": {}, "dd": {}, "blockquote": {}, "br": {}, "hr": {}, "table": {}, "thead": {}, "tbody": {},
 	"tr": {}, "th": {}, "td": {}, "output": {}, "time": {}, "mark": {}, "a": {}, "article": {},
+	"fieldset": {}, "legend": {}, "label": {}, "input": {}, "details": {}, "summary": {},
 }
 
 func ValidateHTMLDocument(document string, material Material) error {
@@ -149,8 +162,16 @@ func ValidateHTMLDocument(document string, material Material) error {
 				}
 			case "style":
 				styleCount++
-				if nodeText(node) != reportHTMLStyles {
+				if nodeText(node) != reportHTMLStyles && nodeText(node) != reportHTMLStylesFor([]Material{material}) {
 					return fmt.Errorf("HTML document contains a stylesheet outside the report template")
+				}
+			case "details":
+				if !hasAttribute(node, "open") || !hasClass(node, "finding-details") || !insideFinding(node) {
+					return fmt.Errorf("HTML details must be an open finding disclosure")
+				}
+			case "summary":
+				if node.Parent == nil || node.Parent.Type != html.ElementNode || !strings.EqualFold(node.Parent.Data, "details") {
+					return fmt.Errorf("HTML summary must belong to a finding disclosure")
 				}
 			}
 			if err := validateAttributes(node); err != nil {
@@ -248,6 +269,12 @@ func addReportHTMLStyles(document string) (string, error) {
 	var visit func(*html.Node) error
 	visit = func(node *html.Node) error {
 		if node.Type == html.ElementNode {
+			if strings.Contains("|fieldset|legend|label|input|details|summary|", "|"+strings.ToLower(node.Data)+"|") {
+				return fmt.Errorf("model HTML cannot provide report controls")
+			}
+			if attribute(node, "data-report-ui") != "" || attribute(node, "data-review-unit-index") != "" || attribute(node, "data-review-severity-index") != "" || attribute(node, "data-review-category-index") != "" {
+				return fmt.Errorf("model HTML cannot provide report control markers")
+			}
 			if strings.EqualFold(node.Data, "head") && headNode == nil {
 				headNode = node
 			}
@@ -464,6 +491,9 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 	var visit func(*html.Node) error
 	visit = func(node *html.Node) error {
 		if node.Type == html.ElementNode {
+			if attribute(node, "data-report-ui") == "filters" {
+				return nil
+			}
 			if !insideMain(node) && node != bodyNode && node.Data != "main" {
 				if strings.TrimSpace(nodeText(node)) != "" || attribute(node, "data-fact") != "" {
 					return fmt.Errorf("HTML body contains report content outside main")
@@ -709,6 +739,7 @@ func validateAttributes(node *html.Node) error {
 	allowed := map[string]struct{}{
 		"class": {}, "id": {}, "lang": {}, "charset": {}, "name": {}, "content": {}, "role": {},
 		"scope": {}, "colspan": {}, "rowspan": {}, "headers": {}, "dir": {}, "href": {},
+		"type": {}, "value": {}, "checked": {}, "open": {},
 	}
 	blocked := map[string]struct{}{
 		"style": {}, "src": {}, "srcset": {}, "action": {}, "formaction": {}, "poster": {}, "ping": {},
@@ -721,6 +752,7 @@ func validateAttributes(node *html.Node) error {
 		"data-finding-id": {}, "data-severity": {}, "data-category": {}, "data-path": {},
 		"data-start-line": {}, "data-end-line": {}, "data-fact": {},
 		"data-report-kind": {}, "data-review-unit-count": {}, "data-review-unit-id": {},
+		"data-report-ui": {}, "data-review-unit-index": {}, "data-review-severity-index": {}, "data-review-category-index": {},
 	}
 	for _, attr := range node.Attr {
 		name := strings.ToLower(attr.Key)
@@ -747,11 +779,59 @@ func validateAttributes(node *html.Node) error {
 		if name == "href" && !strings.HasPrefix(value, "#") {
 			return fmt.Errorf("HTML document contains an external or unsafe link")
 		}
+		if name == "type" && (strings.ToLower(node.Data) != "input" || value != "radio") {
+			return fmt.Errorf("HTML document contains an unsupported input type")
+		}
+		if (name == "checked" && (node.Data != "input" || value != "")) || (name == "open" && (node.Data != "details" || value != "")) {
+			return fmt.Errorf("HTML document contains an unsupported boolean attribute")
+		}
 		if strings.Contains(value, "javascript:") || strings.Contains(value, "data:") || strings.Contains(value, "http:") || strings.Contains(value, "https:") {
 			return fmt.Errorf("HTML document contains an external or unsafe URL")
 		}
 	}
 	return nil
+}
+
+func reportHTMLStylesFor(materials []Material) string {
+	var styles strings.Builder
+	styles.WriteString(reportHTMLStyles)
+	for index := range materials {
+		fmt.Fprintf(&styles, `main:has(#report-filter-unit-option-%d:checked) article:not([data-review-unit-index="%d"]) { display: none; }`, index, index)
+	}
+	for index := range []string{"critical", "high", "medium", "low", "not_collected"} {
+		fmt.Fprintf(&styles, `main:has(#report-filter-severity-option-%d:checked) article:not([data-review-severity-index="%d"]) { display: none; }`, index, index)
+	}
+	for _, category := range reportFilterCategories(materials) {
+		fmt.Fprintf(&styles, `main:has(#report-filter-category-option-%d:checked) article:not([data-review-category-index="%d"]) { display: none; }`, category.index, category.index)
+	}
+	return styles.String()
+}
+
+type reportFilterCategory struct {
+	index int
+	name  string
+	label string
+}
+
+func reportFilterCategories(materials []Material) []reportFilterCategory {
+	labels := make(map[string]string)
+	for _, material := range materials {
+		for _, finding := range material.Findings {
+			if _, exists := labels[finding.Category]; !exists {
+				labels[finding.Category] = finding.Display.CategoryZH
+			}
+		}
+	}
+	names := make([]string, 0, len(labels))
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	categories := make([]reportFilterCategory, len(names))
+	for index, name := range names {
+		categories[index] = reportFilterCategory{index: index, name: name, label: labels[name]}
+	}
+	return categories
 }
 
 func attribute(node *html.Node, name string) string {
@@ -761,6 +841,15 @@ func attribute(node *html.Node, name string) string {
 		}
 	}
 	return ""
+}
+
+func hasAttribute(node *html.Node, name string) bool {
+	for _, attr := range node.Attr {
+		if strings.EqualFold(attr.Key, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func findAllDataFacts(root *html.Node) map[string][]*html.Node {

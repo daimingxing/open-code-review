@@ -11,14 +11,83 @@ import (
 	"path/filepath"
 )
 
+// PreparedHTML contains a fully validated, safe-to-publish report document.
+type PreparedHTML struct {
+	document string
+}
+
 func WriteHTML(target string, automatic bool, document string, material Material) (string, error) {
-	return writeHTMLWith(target, automatic, document, material, func(dir, pattern string) (materialTempFile, error) {
+	prepared, err := PrepareHTML(document, material)
+	if err != nil {
+		return "", err
+	}
+	return WritePreparedHTML(target, automatic, prepared)
+}
+
+func PrepareHTML(document string, material Material) (PreparedHTML, error) {
+	prepared, err := addReportHTMLStyles(document)
+	if err != nil {
+		return PreparedHTML{}, fmt.Errorf("prepare generated HTML: %w", err)
+	}
+	if err := ValidateHTMLDocument(prepared, material); err != nil {
+		return PreparedHTML{}, fmt.Errorf("validate generated HTML: %w", err)
+	}
+	prepared, err = addReportExperience(prepared, []Material{material}, nil)
+	if err != nil {
+		return PreparedHTML{}, fmt.Errorf("add report controls: %w", err)
+	}
+	if err := ValidateHTMLDocument(prepared, material); err != nil {
+		return PreparedHTML{}, fmt.Errorf("validate interactive HTML: %w", err)
+	}
+	return PreparedHTML{document: prepared}, nil
+}
+
+func WritePreparedHTML(target string, automatic bool, prepared PreparedHTML) (string, error) {
+	if prepared.document == "" || len(prepared.document) > MaxHTMLDocumentBytes {
+		return "", fmt.Errorf("prepared HTML document size must be between 1 byte and %d bytes", MaxHTMLDocumentBytes)
+	}
+	return publishHTML(target, automatic, prepared.document, func(dir, pattern string) (materialTempFile, error) {
 		return os.CreateTemp(dir, pattern)
 	}, os.Link)
 }
 
 func WriteMultiHTML(target string, automatic bool, document string, input MultiReportInput) (string, error) {
-	return writeMultiHTMLWith(target, automatic, document, input, func(dir, pattern string) (materialTempFile, error) {
+	prepared, err := PrepareMultiHTML(document, input)
+	if err != nil {
+		return "", err
+	}
+	return WritePreparedMultiHTML(target, automatic, prepared)
+}
+
+func PrepareMultiHTML(document string, input MultiReportInput) (PreparedHTML, error) {
+	prepared, err := addReportHTMLStyles(document)
+	if err != nil {
+		return PreparedHTML{}, fmt.Errorf("prepare generated HTML: %w", err)
+	}
+	if err := ValidateMultiHTMLDocument(prepared, input); err != nil {
+		return PreparedHTML{}, fmt.Errorf("validate generated HTML: %w", err)
+	}
+	materials := make([]Material, len(input.ReviewUnits))
+	unitIDs := make([]string, len(input.ReviewUnits))
+	for index, unit := range input.ReviewUnits {
+		materials[index] = unit.Material
+		unitIDs[index] = unit.ID
+	}
+	prepared, err = addReportExperience(prepared, materials, unitIDs)
+	if err != nil {
+		return PreparedHTML{}, fmt.Errorf("add report controls: %w", err)
+	}
+	if err := ValidateMultiHTMLDocument(prepared, input); err != nil {
+		return PreparedHTML{}, fmt.Errorf("validate interactive HTML: %w", err)
+	}
+	return PreparedHTML{document: prepared}, nil
+}
+
+func WritePreparedMultiHTML(target string, automatic bool, prepared PreparedHTML) (string, error) {
+	if prepared.document == "" || len(prepared.document) > MaxHTMLDocumentBytes {
+		return "", fmt.Errorf("prepared HTML document size must be between 1 byte and %d bytes", MaxHTMLDocumentBytes)
+	}
+	return publishHTML(target, automatic, prepared.document, func(dir, pattern string) (materialTempFile, error) {
 		return os.CreateTemp(dir, pattern)
 	}, os.Link)
 }
@@ -43,6 +112,10 @@ func writeHTMLWithValidation(target string, automatic bool, document string, val
 	if err := validate(document); err != nil {
 		return "", fmt.Errorf("validate generated HTML: %w", err)
 	}
+	return publishHTML(target, automatic, document, createTemp, link)
+}
+
+func publishHTML(target string, automatic bool, document string, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
 	absTarget, err := filepath.Abs(target)
 	if err != nil {
 		return "", fmt.Errorf("resolve HTML path: %w", err)

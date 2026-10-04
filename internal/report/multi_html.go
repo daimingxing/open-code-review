@@ -95,7 +95,11 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 			}
 		case "style":
 			styleCount++
-			if nodeText(node) != reportHTMLStyles {
+			materials := make([]Material, len(input.ReviewUnits))
+			for index, unit := range input.ReviewUnits {
+				materials[index] = unit.Material
+			}
+			if nodeText(node) != reportHTMLStyles && nodeText(node) != reportHTMLStylesFor(materials) {
 				return fmt.Errorf("HTML document contains a stylesheet outside the report template")
 			}
 		case "main":
@@ -473,6 +477,14 @@ func projectMultiHTMLUnit(document string, unit ReviewUnit, unitIndex int) (stri
 	var filter func(*html.Node, string) (bool, error)
 	filter = func(node *html.Node, owner string) (bool, error) {
 		if node.Type == html.ElementNode {
+			if strings.EqualFold(node.Data, "style") {
+				for child := node.FirstChild; child != nil; {
+					next := child.NextSibling
+					node.RemoveChild(child)
+					child = next
+				}
+				node.AppendChild(&html.Node{Type: html.TextNode, Data: reportHTMLStylesFor([]Material{unit.Material})})
+			}
 			if nodeOwner := attribute(node, "data-review-unit-id"); nodeOwner != "" {
 				owner = nodeOwner
 				if owner != unit.ID {
