@@ -89,3 +89,24 @@ func TestWriteHTMLRejectsModelStylesAndDoesNotPublish(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteHTMLRejectsDefaultHiddenContainersAndDoesNotPublish(t *testing.T) {
+	material := validHTMLMaterial()
+	base := validHTMLModelDocument(material)
+	firstFinding := findingHTML(material.Findings[0])
+	for name, tag := range map[string]string{
+		"closed details": "details",
+		"closed dialog":  "dialog",
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := strings.Replace(base, firstFinding, "<"+tag+">"+firstFinding+"</"+tag+">", 1)
+			target := filepath.Join(t.TempDir(), "report.html")
+			if _, err := WriteHTML(target, false, document, material); err == nil {
+				t.Fatalf("WriteHTML accepted findings inside closed <%s>", tag)
+			}
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("rejected closed <%s> left a final file: %v", tag, err)
+			}
+		})
+	}
+}

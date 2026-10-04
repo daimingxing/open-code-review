@@ -30,6 +30,7 @@ output { display: block; font-size: 1.25rem; font-weight: 700; font-variant-nume
 article { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
 article h3 { margin-top: 0; }
 pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fact-row pre { margin: 0; }
 @media (max-width: 600px) { body { padding: 1rem; } .fact-row { grid-template-columns: minmax(0, 1fr); } }
 `
 
@@ -60,7 +61,7 @@ var allowedHTMLLabels = map[string]struct{}{
 	"\u5ba1\u67e5\u8986\u76d6": {}, "\u8bc1\u636e": {}, "\u5efa\u8bae": {}, "\u6458\u8981": {}, "\u4e25\u91cd\u7b49\u7ea7": {},
 	"\u7c7b\u522b": {}, "\u6587\u4ef6": {}, "\u884c\u53f7": {}, "\u72b6\u6001": {}, "\u539f\u56e0": {},
 	"\u77e5\u8bc6\u6765\u6e90": {}, "\u6210\u679c": {}, "\u4eba\u5458": {}, "\u6765\u6e90": {}, "\u9650\u5236": {},
-	"\u6750\u6599\u7248\u672c": {}, "\u8fd0\u884c\u6807\u8bc6": {}, "\u9009\u4e2d": {},
+	"\u6750\u6599\u7248\u672c": {}, "\u8fd0\u884c\u6807\u8bc6": {}, "\u9009\u4e2d": {}, "\u6e90\u4ee3\u7801": {},
 	"\u6750\u6599\u4e8b\u5b9e":             {},
 	"\u9879\u76ee\u7ed3\u6784\u68c0\u67e5": {},
 	"\u95ee\u9898\u6570\u91cf":             {}, "\u4e25\u91cd": {}, "\u9ad8": {}, "\u4e2d": {}, "\u4f4e": {},
@@ -113,7 +114,7 @@ func ValidateHTMLDocument(document string, material Material) error {
 				headNode = node
 			case "body":
 				bodyNode = node
-			case "script", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "link", "img", "picture", "source", "video", "audio", "track", "svg", "math", "base", "template":
+			case "script", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "link", "img", "picture", "source", "video", "audio", "track", "svg", "math", "base", "template", "details", "dialog":
 				return fmt.Errorf("HTML document contains disallowed <%s> content", tag)
 			case "main":
 				if mainNode != nil {
@@ -296,9 +297,11 @@ func validateHTMLFindings(nodes map[string]*html.Node, material Material) error 
 			}
 		}
 		expectedFacts := map[string]string{
+			"path": finding.Path, "start_line": strconv.Itoa(finding.StartLine), "end_line": strconv.Itoa(finding.EndLine),
 			"summary_zh": finding.Display.SummaryZH, "severity_zh": finding.Display.SeverityZH,
 			"category_zh": finding.Display.CategoryZH, "source_content": finding.SourceContent,
-			"evidence_status": string(finding.Evidence.Status), "recommendation_status": string(finding.Recommendation.Status),
+			"evidence_status":       displayFindingFact("evidence_status", string(finding.Evidence.Status)),
+			"recommendation_status": displayFindingFact("recommendation_status", string(finding.Recommendation.Status)),
 		}
 		if finding.Evidence.Status == StatusProvided {
 			expectedFacts["evidence_code"] = finding.Evidence.Code
@@ -319,9 +322,73 @@ func validateHTMLFindings(nodes map[string]*html.Node, material Material) error 
 			if !exists || len(matches) != 1 || normalizedHTMLText(nodeText(matches[0])) != normalizedHTMLText(expected) {
 				return fmt.Errorf("HTML finding %q omits, adds, or changes fact %q", finding.ID, name)
 			}
+			if err := validateFindingFactPresentation(matches[0], name); err != nil {
+				return fmt.Errorf("HTML finding %q: %w", finding.ID, err)
+			}
 		}
 	}
 	return nil
+}
+
+func displayFindingFact(name, value string) string {
+	if !strings.HasSuffix(name, "_status") {
+		return value
+	}
+	switch value {
+	case "provided":
+		return "\u5df2\u63d0\u4f9b"
+	case "not_collected":
+		return "\u672a\u63d0\u4f9b"
+	case "not_applicable":
+		return "\u4e0d\u9002\u7528"
+	case "failed":
+		return "\u5931\u8d25"
+	default:
+		return value
+	}
+}
+
+func validateFindingFactPresentation(fact *html.Node, name string) error {
+	label, ok := findingHTMLLabels[name]
+	if !ok {
+		return fmt.Errorf("finding fact %q has no fixed label", name)
+	}
+	for parent := fact.Parent; parent != nil; parent = parent.Parent {
+		if parent.Type != html.ElementNode || !hasClass(parent, "fact-row") {
+			continue
+		}
+		labelCount := 0
+		for child := parent.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == html.ElementNode && hasClass(child, "fact-label") {
+				labelCount++
+				if strings.TrimSpace(nodeText(child)) != label {
+					return fmt.Errorf("finding fact %q has an incorrect fixed label", name)
+				}
+			}
+		}
+		if labelCount == 1 {
+			return nil
+		}
+		return fmt.Errorf("finding fact %q must have exactly one fixed label", name)
+	}
+	return fmt.Errorf("finding fact %q must be presented in a labeled fact row", name)
+}
+
+var findingHTMLLabels = map[string]string{
+	"path": "\u6587\u4ef6", "start_line": "\u884c\u53f7", "end_line": "\u884c\u53f7",
+	"summary_zh": "\u6458\u8981", "severity_zh": "\u4e25\u91cd\u7b49\u7ea7", "category_zh": "\u7c7b\u522b",
+	"source_content": "\u6e90\u4ee3\u7801", "evidence_status": "\u72b6\u6001", "recommendation_status": "\u72b6\u6001",
+	"evidence_code": "\u8bc1\u636e", "evidence_reason": "\u539f\u56e0",
+	"recommendation_code": "\u5efa\u8bae", "recommendation_reason": "\u539f\u56e0",
+}
+
+func hasClass(node *html.Node, class string) bool {
+	for _, value := range strings.Fields(attribute(node, "class")) {
+		if value == class {
+			return true
+		}
+	}
+	return false
 }
 
 func validateHTMLStats(stats map[string]*html.Node, material Material) error {
@@ -625,7 +692,7 @@ func containsHan(value string) bool {
 func validateAttributes(node *html.Node) error {
 	allowed := map[string]struct{}{
 		"class": {}, "id": {}, "lang": {}, "charset": {}, "name": {}, "content": {}, "role": {},
-		"scope": {}, "colspan": {}, "rowspan": {}, "headers": {}, "open": {}, "dir": {}, "href": {},
+		"scope": {}, "colspan": {}, "rowspan": {}, "headers": {}, "dir": {}, "href": {},
 	}
 	blocked := map[string]struct{}{
 		"style": {}, "src": {}, "srcset": {}, "action": {}, "formaction": {}, "poster": {}, "ping": {},

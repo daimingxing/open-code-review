@@ -34,6 +34,9 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 		{"missing section", func(value string) string {
 			return strings.Replace(value, `data-section="governance"`, `data-section="unknown"`, 1)
 		}},
+		{"incorrect finding label", func(value string) string {
+			return strings.Replace(value, `<strong class="fact-label">严重等级</strong><span data-fact="severity_zh">`, `<strong class="fact-label">原因</strong><span data-fact="severity_zh">`, 1)
+		}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -157,6 +160,26 @@ func TestValidateHTMLDocumentRejectsUnverifiedBodyContentOutsideMain(t *testing.
 	}
 }
 
+func TestValidateHTMLDocumentRejectsDefaultHiddenContainers(t *testing.T) {
+	material := validHTMLMaterial()
+	content := validHTMLDocument(material)
+	firstFinding := findingHTML(material.Findings[0])
+	for name, tag := range map[string]string{
+		"closed details": "details",
+		"closed dialog":  "dialog",
+	} {
+		t.Run(name, func(t *testing.T) {
+			hidden := strings.Replace(content, firstFinding, "<"+tag+">"+firstFinding+"</"+tag+">", 1)
+			if hidden == content {
+				t.Fatal("fixture did not contain first finding")
+			}
+			if err := ValidateHTMLDocument(hidden, material); err == nil {
+				t.Fatalf("ValidateHTMLDocument accepted findings inside closed <%s>", tag)
+			}
+		})
+	}
+}
+
 func validHTMLMaterial() Material {
 	material := validMaterial()
 	material.Findings = []Finding{
@@ -244,26 +267,38 @@ func findingHTML(finding Finding) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, `<article data-finding-id="%s" data-severity="%s" data-category="%s" data-path="%s" data-start-line="%d" data-end-line="%d">`, html.EscapeString(finding.ID), html.EscapeString(finding.Severity), html.EscapeString(finding.Category), html.EscapeString(finding.Path), finding.StartLine, finding.EndLine)
 	facts := []struct{ name, value string }{
+		{"path", finding.Path},
+		{"start_line", fmt.Sprint(finding.StartLine)},
+		{"end_line", fmt.Sprint(finding.EndLine)},
 		{"summary_zh", finding.Display.SummaryZH},
 		{"severity_zh", finding.Display.SeverityZH},
 		{"category_zh", finding.Display.CategoryZH},
 		{"source_content", finding.SourceContent},
 	}
 	for _, fact := range facts {
-		fmt.Fprintf(&builder, `<span data-fact="%s">%s</span>`, fact.name, html.EscapeString(fact.value))
+		writeFindingFact(&builder, fact.name, fact.value)
 	}
-	fmt.Fprintf(&builder, `<span data-fact="evidence_status">%s</span>`, finding.Evidence.Status)
+	writeFindingFact(&builder, "evidence_status", displayFindingFact("evidence_status", string(finding.Evidence.Status)))
 	if finding.Evidence.Status == StatusProvided {
-		fmt.Fprintf(&builder, `<pre data-fact="evidence_code">%s</pre>`, html.EscapeString(finding.Evidence.Code))
+		writeFindingFact(&builder, "evidence_code", finding.Evidence.Code)
 	} else {
-		fmt.Fprintf(&builder, `<span data-fact="evidence_reason">%s</span>`, html.EscapeString(finding.Evidence.Reason))
+		writeFindingFact(&builder, "evidence_reason", finding.Evidence.Reason)
 	}
-	fmt.Fprintf(&builder, `<span data-fact="recommendation_status">%s</span>`, finding.Recommendation.Status)
+	writeFindingFact(&builder, "recommendation_status", displayFindingFact("recommendation_status", string(finding.Recommendation.Status)))
 	if finding.Recommendation.Status == StatusProvided {
-		fmt.Fprintf(&builder, `<pre data-fact="recommendation_code">%s</pre>`, html.EscapeString(finding.Recommendation.Code))
+		writeFindingFact(&builder, "recommendation_code", finding.Recommendation.Code)
 	} else {
-		fmt.Fprintf(&builder, `<span data-fact="recommendation_reason">%s</span>`, html.EscapeString(finding.Recommendation.Reason))
+		writeFindingFact(&builder, "recommendation_reason", finding.Recommendation.Reason)
 	}
 	builder.WriteString(`</article>`)
 	return builder.String()
+}
+
+func writeFindingFact(builder *strings.Builder, name, value string) {
+	label := findingHTMLLabels[name]
+	if name == "evidence_code" || name == "recommendation_code" || name == "source_content" {
+		fmt.Fprintf(builder, `<div class="fact-row"><strong class="fact-label">%s</strong><pre data-fact="%s">%s</pre></div>`, label, name, html.EscapeString(value))
+		return
+	}
+	fmt.Fprintf(builder, `<div class="fact-row"><strong class="fact-label">%s</strong><span data-fact="%s">%s</span></div>`, label, name, html.EscapeString(value))
 }

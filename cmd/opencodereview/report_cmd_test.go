@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -587,9 +588,11 @@ func appendReportStatistics(builder *strings.Builder, material report.Material) 
 func appendReportFinding(builder *strings.Builder, finding report.Finding) {
 	fmt.Fprintf(builder, `<article data-finding-id="%s" data-severity="%s" data-category="%s" data-path="%s" data-start-line="%d" data-end-line="%d">`, html.EscapeString(finding.ID), html.EscapeString(finding.Severity), html.EscapeString(finding.Category), html.EscapeString(finding.Path), finding.StartLine, finding.EndLine)
 	facts := []struct{ name, value string }{
+		{"path", finding.Path}, {"start_line", strconv.Itoa(finding.StartLine)}, {"end_line", strconv.Itoa(finding.EndLine)},
 		{"summary_zh", finding.Display.SummaryZH}, {"severity_zh", finding.Display.SeverityZH},
 		{"category_zh", finding.Display.CategoryZH}, {"source_content", finding.SourceContent},
-		{"evidence_status", string(finding.Evidence.Status)}, {"recommendation_status", string(finding.Recommendation.Status)},
+		{"evidence_status", reportDisplayFindingFact("evidence_status", string(finding.Evidence.Status))},
+		{"recommendation_status", reportDisplayFindingFact("recommendation_status", string(finding.Recommendation.Status))},
 	}
 	if finding.Evidence.Status == report.StatusProvided {
 		facts = append(facts, struct{ name, value string }{"evidence_code", finding.Evidence.Code})
@@ -602,7 +605,28 @@ func appendReportFinding(builder *strings.Builder, finding report.Finding) {
 		facts = append(facts, struct{ name, value string }{"recommendation_reason", finding.Recommendation.Reason})
 	}
 	for _, fact := range facts {
-		fmt.Fprintf(builder, `<span data-fact="%s">%s</span>`, fact.name, html.EscapeString(fact.value))
+		label := reportFindingFactLabel(fact.name)
+		if fact.name == "evidence_code" || fact.name == "recommendation_code" || fact.name == "source_content" {
+			fmt.Fprintf(builder, `<div class="fact-row"><strong class="fact-label">%s</strong><pre data-fact="%s">%s</pre></div>`, label, fact.name, html.EscapeString(fact.value))
+		} else {
+			fmt.Fprintf(builder, `<div class="fact-row"><strong class="fact-label">%s</strong><span data-fact="%s">%s</span></div>`, label, fact.name, html.EscapeString(fact.value))
+		}
 	}
 	builder.WriteString(`</article>`)
+}
+
+func reportFindingFactLabel(name string) string {
+	return map[string]string{
+		"path": "文件", "start_line": "行号", "end_line": "行号", "summary_zh": "摘要",
+		"severity_zh": "严重等级", "category_zh": "类别", "source_content": "源代码",
+		"evidence_status": "状态", "recommendation_status": "状态", "evidence_code": "证据",
+		"evidence_reason": "原因", "recommendation_code": "建议", "recommendation_reason": "原因",
+	}[name]
+}
+
+func reportDisplayFindingFact(name, value string) string {
+	if !strings.HasSuffix(name, "_status") {
+		return value
+	}
+	return map[string]string{"provided": "已提供", "not_collected": "未提供", "not_applicable": "不适用", "failed": "失败"}[value]
 }
