@@ -240,6 +240,12 @@ func TestProvider_Execute_Integration(t *testing.T) {
 			}, nil
 		},
 	)
+	server.AddTool(
+		&mcp.Tool{Name: "fail", InputSchema: map[string]any{"type": "object"}},
+		func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "controlled failure"}}}, nil
+		},
+	)
 
 	ctx := context.Background()
 	st, ct := mcp.NewInMemoryTransports()
@@ -270,6 +276,14 @@ func TestProvider_Execute_Integration(t *testing.T) {
 	}
 	if result != "hello world" {
 		t.Errorf("Execute result = %q, want %q", result, "hello world")
+	}
+	observedServiceError := false
+	failing := &Provider{toolName: "fail", client: c, observe: func(_ string, _ string, _ map[string]any, _ string, observedErr error, serviceError bool) {
+		observedServiceError = observedErr == nil && serviceError
+	}}
+	result, err = failing.Execute(ctx, nil)
+	if err != nil || !strings.Contains(result, "controlled failure") || !observedServiceError {
+		t.Fatalf("IsError changed the model response or was hidden from observer: result=%q err=%v observed=%v", result, err, observedServiceError)
 	}
 }
 
@@ -367,6 +381,10 @@ func TestNewClient_Integration(t *testing.T) {
 		}
 		if result == "" {
 			t.Error("expected non-empty error message")
+		}
+		result, err, serviceError := c.CallToolWithStatus(ctx, "fail", nil)
+		if err != nil || !serviceError || !strings.Contains(result, "something went wrong") {
+			t.Fatalf("CallToolWithStatus = (%q, %v, %v), want original text, nil Go error, and MCP IsError", result, err, serviceError)
 		}
 	})
 

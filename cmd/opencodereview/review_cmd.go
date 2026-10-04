@@ -225,7 +225,13 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	}
 	tools := buildToolRegistry(rt.Collector, fileReader)
 
-	mcpClients := initMCPClients(ctx, rt.AppCfg, tools, cc.RepoDir, Version)
+	var knowledgeRecorder *knowledgeObservationRecorder
+	var observeMCP mcp.ObservationHandler
+	if opts.reportEnabled {
+		knowledgeRecorder = newKnowledgeObservationRecorder(rt.AppCfg, cc.RepoDir)
+		observeMCP = knowledgeRecorder.observe
+	}
+	mcpClients := initMCPClients(ctx, rt.AppCfg, tools, cc.RepoDir, Version, observeMCP)
 	defer closeReviewMCPClients(mcpClients)
 
 	mcpToolDefs := mcp.CollectToolDefs(mcpClients, tools)
@@ -354,7 +360,12 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	}
 	var materialErr error
 	if opts.reportEnabled {
-		materialOptions := reportMaterialOptions{ToolCalls: ag.ToolCalls(), ProjectSummary: ag.ProjectSummary()}
+		materialOptions := reportMaterialOptions{
+			ProjectSummary:        ag.ProjectSummary(),
+			KnowledgeObservations: knowledgeRecorder.snapshot(),
+			LLMClient:             rt.Client,
+			ModelName:             rt.Model,
+		}
 		if len(snapshotCapture) > 0 {
 			materialOptions.Snapshot = &snapshotCapture[0]
 		}
@@ -588,9 +599,18 @@ func runPreviewContext(ctx context.Context, cc *commonContext, opts reviewOption
 	return outputPreview(preview, opts.outputFormat, out)
 }
 
-func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repoDir, version string) []*mcp.Client {
+func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repoDir, version string, observers ...mcp.ObservationHandler) []*mcp.Client {
 	if cfg == nil || len(cfg.MCPServers) == 0 {
 		return nil
+	}
+	var observe mcp.ObservationHandler
+	if len(observers) > 0 {
+		observe = observers[0]
+	}
+	recordUnavailable := func(serverName string, serverCfg MCPServerConfig, stage string) {
+		if observe != nil && hasKnownKnowledgeTool(serverCfg.Tools) {
+			observe(serverName, "server_unavailable", map[string]any{"stage": stage}, "", nil, false)
+		}
 	}
 
 	mcpNames := make([]string, 0, len(cfg.MCPServers))
@@ -607,6 +627,7 @@ func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repo
 
 		if isRemote {
 			if serverCfg.URL == "" {
+				recordUnavailable(name, serverCfg, "missing_url")
 				fmt.Fprintf(os.Stderr, "[ocr] WARNING: remote MCP server %q has no URL configured, skipping\n", name)
 				continue
 			}
@@ -614,15 +635,17 @@ func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repo
 			mc, err := mcp.NewRemoteClient(initCtx, name, serverCfg.URL, serverCfg.Headers, version)
 			initCancel()
 			if err != nil {
+				recordUnavailable(name, serverCfg, "connect_failed")
 				fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to connect to remote MCP server %q: %v\n", name, err)
 				continue
 			}
 			clients = append(clients, mc)
-			mcp.RegisterAll(tools, mc, serverCfg.Tools)
+			mcp.RegisterAll(tools, mc, serverCfg.Tools, observe)
 			continue
 		}
 
 		if serverCfg.Command == "" {
+			recordUnavailable(name, serverCfg, "missing_command")
 			fmt.Fprintf(os.Stderr, "[ocr] WARNING: MCP server %q has no command configured, skipping\n", name)
 			continue
 		}
@@ -635,6 +658,7 @@ func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repo
 			output, err := setupCmd.CombinedOutput()
 			setupCancel()
 			if err != nil {
+				recordUnavailable(name, serverCfg, "setup_failed")
 				fmt.Fprintf(os.Stderr, "[ocr] ERROR: MCP server %q setup command failed.\n", name)
 				fmt.Fprintf(os.Stderr, "[ocr]   Command: %s\n", serverCfg.Setup)
 				fmt.Fprintf(os.Stderr, "[ocr]   Working directory: %s\n", repoDir)
@@ -651,11 +675,12 @@ func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repo
 		mc, err := mcp.NewClient(initCtx, name, serverCfg.Command, serverCfg.Args, serverCfg.Env, repoDir, version)
 		initCancel()
 		if err != nil {
+			recordUnavailable(name, serverCfg, "start_failed")
 			fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to start MCP server %q: %v\n", name, err)
 			continue
 		}
 		clients = append(clients, mc)
-		mcp.RegisterAll(tools, mc, serverCfg.Tools)
+		mcp.RegisterAll(tools, mc, serverCfg.Tools, observe)
 	}
 	return clients
 }

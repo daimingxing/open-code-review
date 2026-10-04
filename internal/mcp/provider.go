@@ -17,33 +17,44 @@ import (
 type Provider struct {
 	toolName string
 	client   *Client
+	observe  ObservationHandler
 }
+
+// ObservationHandler 在调用方启用观测时接收 MCP 工具结果和 allowlist 可用性信号。 // allow-non-english: Chinese contract comment required by repository instructions
+type ObservationHandler func(serverName, name string, args map[string]any, result string, err error, serviceError bool)
 
 func (p *Provider) Tool() tool.Tool {
 	return tool.Dynamic(p.toolName)
 }
 
 func (p *Provider) Execute(ctx context.Context, args map[string]any) (string, error) {
-	return p.client.CallTool(ctx, p.toolName, args)
+	result, actualResult, err, serviceError := p.client.CallToolForObservation(ctx, p.toolName, args)
+	if p.observe != nil {
+		p.observe(p.client.Name(), p.toolName, args, actualResult, err, serviceError)
+	}
+	return result, err
 }
 
-// RegisterAll registers tools from the MCP client into the tool registry.
-// When allowedTools is non-empty, only tools whose names appear in the list are registered.
-// Tools whose names conflict with built-in or already-registered tools are skipped with a warning.
-func RegisterAll(reg *tool.Registry, c *Client, allowedTools []string) {
+// RegisterAll 将 MCP 客户端工具注册到工具表。 // allow-non-english: Chinese API contract comment required by repository instructions
+// allowedTools 非空时只注册列出的工具；未注册项会告警并通知可选观测器。 // allow-non-english: Chinese API contract comment required by repository instructions
+// 可选观测器接收实际 MCP 返回值，不改变工具返回给模型的文本。 // allow-non-english: Chinese API contract comment required by repository instructions
+func RegisterAll(reg *tool.Registry, c *Client, allowedTools []string, observers ...ObservationHandler) {
+	var observe ObservationHandler
+	if len(observers) > 0 {
+		observe = observers[0]
+	}
 	allowed := make(map[string]struct{}, len(allowedTools))
 	for _, name := range allowedTools {
 		allowed[name] = struct{}{}
 	}
 	filtering := len(allowed) > 0
 
-	matched := make(map[string]struct{})
+	registered := make(map[string]struct{})
 	for _, t := range c.Tools() {
 		if filtering {
 			if _, ok := allowed[t.Name]; !ok {
 				continue
 			}
-			matched[t.Name] = struct{}{}
 		}
 		if tool.IsReserved(t.Name) {
 			fmt.Fprintf(os.Stderr, "[ocr] WARNING: MCP server %q tool %q conflicts with built-in tool, skipping\n", c.Name(), t.Name)
@@ -56,12 +67,17 @@ func RegisterAll(reg *tool.Registry, c *Client, allowedTools []string) {
 		reg.Register(&Provider{
 			toolName: t.Name,
 			client:   c,
+			observe:  observe,
 		})
+		registered[t.Name] = struct{}{}
 	}
 
 	for name := range allowed {
-		if _, ok := matched[name]; !ok {
-			fmt.Fprintf(os.Stderr, "[ocr] WARNING: MCP server %q allowed tool %q not found in server's tool list\n", c.Name(), name)
+		if _, ok := registered[name]; !ok {
+			fmt.Fprintf(os.Stderr, "[ocr] WARNING: MCP server %q allowed tool %q was not registered\n", c.Name(), name)
+			if observe != nil {
+				observe(c.Name(), "server_unavailable", map[string]any{"stage": "tool_unavailable", "tool": name}, "", nil, false)
+			}
 		}
 	}
 }

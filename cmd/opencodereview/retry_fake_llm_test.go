@@ -46,9 +46,16 @@ type fakeLLM struct {
 	// hardFail lists files whose every attempt returns 402.
 	hardFail map[string]bool
 	// includeFinding 控制每个主审查任务先返回一条原生 code_comment。 // allow-non-english: 测试夹具字段用途说明
-	includeFinding bool
-	findingPath    string
-	findingSent    map[string]bool
+	includeFinding   bool
+	findingPath      string
+	findingSent      map[string]bool
+	knowledgePath    string
+	knowledgePartial bool
+	knowledgeReads   int
+	summaryCalls     int
+	summaryDelay     time.Duration
+	failSummary      bool
+	invalidSummary   bool
 }
 
 // newFakeLLM returns a server that succeeds on the first attempt for every
@@ -106,6 +113,25 @@ func (f *fakeLLM) attemptCounts() map[string]int {
 	return out
 }
 
+func (f *fakeLLM) setKnowledgePath(path string, partial bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.knowledgePath = path
+	f.knowledgePartial = partial
+}
+
+func (f *fakeLLM) summaryCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.summaryCalls
+}
+
+func (f *fakeLLM) knowledgeReadCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.knowledgeReads
+}
+
 // markers maps a per-file token that appears only in that file's diff onto the
 // file name. The prompt's change_files section lists the *other* file's path,
 // so matching on the path itself would misattribute requests; the marker only
@@ -150,6 +176,64 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw := body.Bytes()
 	file := f.fileOf(raw)
 	hasTools := bytes.Contains(raw, []byte(`"tools"`))
+	if bytes.Contains(raw, []byte("OCR_REPORT_ENRICHMENT")) {
+		f.mu.Lock()
+		f.summaryCalls++
+		fail := f.failSummary
+		invalid := f.invalidSummary
+		delay := f.summaryDelay
+		f.mu.Unlock()
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if fail {
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"controlled summary failure"}}`))
+			return
+		}
+		summaryText := `{"summary_zh":"\u5c06 main.go \u7684\u56de\u4f20\u503c\u7531 1 \u8c03\u6574\u4e3a 2\u3002","modules":[{"name":".","summary_zh":"\u8c03\u6574 main.go \u7684\u56de\u4f20\u503c\u3002"}],"representative_changes":[{"path":"main.go","summary_zh":"return 1 \u6539\u4e3a return 2"}]}`
+		if invalid {
+			summaryText = `{"summary_zh":"\u4fee\u590d issue 42\u3002","modules":[{"name":"unknown","summary_zh":"\u6539\u9020\u5176\u4ed6\u670d\u52a1\u3002"}],"representative_changes":[{"path":"invented.go","summary_zh":"\u5904\u7406\u786e\u8ba4\u7f3a\u9677\u3002"}]}`
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"id": "msg_summary", "type": "message", "role": "assistant", "model": "claude-test",
+			"content":     []map[string]any{{"type": "text", "text": summaryText}},
+			"stop_reason": "end_turn", "usage": map[string]any{"input_tokens": 31, "output_tokens": 17},
+		})
+		_, _ = w.Write(payload)
+		return
+	}
+
+	f.mu.Lock()
+	knowledgePath := f.knowledgePath
+	knowledgePartial := f.knowledgePartial
+	knowledgeCall := false
+	if knowledgePath != "" && hasTools && bytes.Contains(raw, []byte(`"read_text_file"`)) {
+		switch {
+		case f.knowledgeReads == 0 && !bytes.Contains(raw, []byte("OLD_KNOWLEDGE")) && !bytes.Contains(raw, []byte("NEW_KNOWLEDGE")):
+			f.knowledgeReads++
+			knowledgeCall = true
+		case f.knowledgeReads == 1 && bytes.Contains(raw, []byte("OLD_KNOWLEDGE")):
+			f.knowledgeReads++
+			knowledgeCall = true
+		}
+	}
+	f.mu.Unlock()
+	if knowledgeCall {
+		input := map[string]any{"path": knowledgePath}
+		if knowledgePartial {
+			input["head"] = 1
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"id": "msg_knowledge", "type": "message", "role": "assistant", "model": "claude-test",
+			"content":     []map[string]any{{"type": "tool_use", "id": "tu_knowledge", "name": "read_text_file", "input": input}},
+			"stop_reason": "tool_use", "usage": map[string]any{"input_tokens": 10, "output_tokens": 5},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+		return
+	}
 
 	// Answer the grouping call with one group per file. These tests are about
 	// per-request retry accounting, which needs each file to be its own request;

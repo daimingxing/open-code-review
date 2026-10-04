@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/alibaba/open-code-review/internal/gitcmd"
+	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/model"
 	"github.com/alibaba/open-code-review/internal/report"
@@ -24,9 +25,11 @@ import (
 const bareReportValue = "\x00"
 
 type reportMaterialOptions struct {
-	Snapshot       *workspaceSnapshotCapture
-	ToolCalls      map[string]int64
-	ProjectSummary string
+	Snapshot              *workspaceSnapshotCapture
+	ProjectSummary        string
+	KnowledgeObservations []knowledgeToolObservation
+	LLMClient             llm.LLMClient
+	ModelName             string
 }
 
 func reviewArgsValidator(opts *reviewOptions) cobra.PositionalArgs {
@@ -154,15 +157,19 @@ func buildReportMaterial(
 	if manifest.Input.Mode == session.InputModeWorkspace && len(options) > 0 && options[0].Snapshot != nil {
 		workspaceSection = workspaceSnapshotSection(*options[0].Snapshot, manifest)
 	}
-	var toolCalls map[string]int64
-	if len(options) > 0 {
-		toolCalls = options[0].ToolCalls
-	}
 	projectSummary := ""
+	var knowledgeObservations []knowledgeToolObservation
+	var summaryClient llm.LLMClient
+	summaryModelName := modelName
 	if len(options) > 0 {
 		projectSummary = options[0].ProjectSummary
+		knowledgeObservations = options[0].KnowledgeObservations
+		summaryClient = options[0].LLMClient
+		if options[0].ModelName != "" {
+			summaryModelName = options[0].ModelName
+		}
 	}
-	achievements, people, knowledge := enrichReportSections(context.Background(), gitRunner, repoDir, scope, manifest, toolCalls, toolFailures, projectSummary)
+	achievements, people, knowledge := enrichReportSections(context.Background(), gitRunner, repoDir, scope, manifest, toolFailures, projectSummary, knowledgeObservations, summaryClient, summaryModelName)
 	sections := report.MaterialSections{
 		GitStatistics:     branchGitStatisticsSection(gitRunner, repoDir, scope),
 		WorkspaceSnapshot: workspaceSection,
