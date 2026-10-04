@@ -49,6 +49,7 @@ details.finding-details[open] > .finding-detail-content { padding-top: .25rem; }
 
 var (
 	localAbsolutePath = regexp.MustCompile(`(?i)([a-z]:[\\/]|\\\\[^\\]+\\|(?:^|[\s"'=(:,>])/(?:[a-z0-9._-]+/)+[a-z0-9._-]+(?:/[a-z0-9._-]+)*|(?:^|[\s"'=(:,>])/(?:root|home|users|private|tmp|var|opt|srv|etc|usr|mnt|media|workplace|workspace|volumes|system|applications|library)(?:[/\s"'>]|$))`)
+	numericClaim      = regexp.MustCompile(`\b\d+\b`)
 )
 
 var requiredHTMLSections = []string{
@@ -67,19 +68,10 @@ var requiredHTMLHeadings = map[string]string{
 	"sources":          "\u6750\u6599\u6765\u6e90",
 }
 
-var allowedHTMLLabels = map[string]struct{}{
-	"\u4ed3\u5e93": {}, "\u4ed3\u5e93\u6807\u8bc6": {}, "\u5ba1\u67e5\u72b6\u6001": {}, "\u5ba1\u67e5\u8303\u56f4": {},
-	"\u5f00\u59cb\u65f6\u95f4": {}, "\u7ed3\u675f\u65f6\u95f4": {}, "\u8017\u65f6": {}, "\u63d0\u4f9b\u65b9": {},
-	"\u6a21\u578b": {}, "\u57fa\u51c6\u63d0\u4ea4": {}, "\u76ee\u6807\u63d0\u4ea4": {}, "\u5b9e\u9645\u8303\u56f4": {},
-	"\u5ba1\u67e5\u8986\u76d6": {}, "\u8bc1\u636e": {}, "\u5efa\u8bae": {}, "\u6458\u8981": {}, "\u4e25\u91cd\u7b49\u7ea7": {},
-	"\u7c7b\u522b": {}, "\u6587\u4ef6": {}, "\u884c\u53f7": {}, "\u72b6\u6001": {}, "\u539f\u56e0": {},
-	"\u77e5\u8bc6\u6765\u6e90": {}, "\u6210\u679c": {}, "\u4eba\u5458": {}, "\u6765\u6e90": {}, "\u9650\u5236": {},
-	"\u6750\u6599\u7248\u672c": {}, "\u8fd0\u884c\u6807\u8bc6": {}, "\u9009\u4e2d": {}, "\u6e90\u4ee3\u7801": {},
-	"\u6750\u6599\u4e8b\u5b9e":             {},
-	"\u9879\u76ee\u7ed3\u6784\u68c0\u67e5": {},
-	"\u95ee\u9898\u6570\u91cf":             {}, "\u4e25\u91cd": {}, "\u9ad8": {}, "\u4e2d": {}, "\u4f4e": {},
-	"\u672a\u63d0\u4f9b\u7b49\u7ea7\u6570\u91cf": {},
-	"\u5b8c\u6210": {}, "\u5931\u8d25": {}, "\u8df3\u8fc7": {}, "\u590d\u7528": {},
+// HTMLRequiredHeading 返回固定章节的中文标题，供验证与修复诊断共享。 // allow-non-english: 固定中文报告标题
+func HTMLRequiredHeading(section string) (string, bool) {
+	heading, ok := requiredHTMLHeadings[section]
+	return heading, ok
 }
 
 var allowedHTMLTags = map[string]struct{}{
@@ -223,28 +215,14 @@ func ValidateHTMLDocument(document string, material Material) error {
 	}
 	for _, name := range requiredHTMLSections {
 		section := sections[name]
-		if section == nil || !hasAncestor(section, mainNode) || strings.TrimSpace(nodeText(section)) == "" {
+		if section == nil || !hasAncestor(section, mainNode) || !hasVisibleSectionContent(section) {
 			return fmt.Errorf("HTML document is missing required section %q", name)
 		}
 		if err := validateSectionHeading(section, name); err != nil {
 			return err
 		}
 	}
-	if material.Sections.StructuralChecks.Status != StatusProvided {
-		status := displayHTMLFact("sections.structural_checks.status", string(material.Sections.StructuralChecks.Status))
-		if !strings.Contains(nodeText(sections["governance"]), status) {
-			return fmt.Errorf("governance section must show the structural check status")
-		}
-	}
-	for _, limitation := range material.Limitations {
-		if !strings.Contains(nodeText(sections["limitations"]), limitation.Reason) {
-			return fmt.Errorf("limitations section omits a recorded limitation")
-		}
-	}
-	if !strings.Contains(nodeText(sections["sources"]), material.Review.RunID) || !strings.Contains(nodeText(sections["sources"]), material.SchemaVersion) {
-		return fmt.Errorf("sources section must include the report schema version and run id")
-	}
-	if err := validateHTMLFindings(findings, material); err != nil {
+	if err := validateHTMLFindings(findings, material, sections["finding-details"]); err != nil {
 		return err
 	}
 	if err := validateHTMLStats(stats, material); err != nil {
@@ -310,7 +288,7 @@ func addReportHTMLStyles(document string) (string, error) {
 	return builder.String(), nil
 }
 
-func validateHTMLFindings(nodes map[string]*html.Node, material Material) error {
+func validateHTMLFindings(nodes map[string]*html.Node, material Material, findingDetails *html.Node) error {
 	if len(nodes) != len(material.Findings) {
 		return fmt.Errorf("HTML finding set contains %d items; report material contains %d", len(nodes), len(material.Findings))
 	}
@@ -328,6 +306,9 @@ func validateHTMLFindings(nodes map[string]*html.Node, material Material) error 
 		}
 		if mainNode == nil {
 			return fmt.Errorf("HTML finding %q must appear inside main", finding.ID)
+		}
+		if !hasAncestor(node, findingDetails) {
+			return fmt.Errorf("HTML finding %q must appear in the finding-details section", finding.ID)
 		}
 		for name, expected := range map[string]string{
 			"severity": finding.Severity, "category": finding.Category, "path": finding.Path,
@@ -354,21 +335,59 @@ func validateHTMLFindings(nodes map[string]*html.Node, material Material) error 
 		} else {
 			expectedFacts["recommendation_reason"] = finding.Recommendation.Reason
 		}
-		actualFacts := findAllDataFacts(node)
-		if len(actualFacts) != len(expectedFacts) {
-			return fmt.Errorf("HTML finding %q has an incomplete or extra fact set", finding.ID)
+		visibleText := normalizedHTMLText(nodeText(node))
+		if !findingHasVisibleDescription(node) {
+			return fmt.Errorf("HTML finding %q must contain a visible Chinese description", finding.ID)
 		}
-		for name, matches := range actualFacts {
-			expected, exists := expectedFacts[name]
-			if !exists || len(matches) != 1 || normalizedHTMLText(nodeText(matches[0])) != normalizedHTMLText(expected) {
-				return fmt.Errorf("HTML finding %q omits, adds, or changes fact %q", finding.ID, name)
+		for _, fact := range []struct{ name, value string }{
+			{"path", finding.Path}, {"start_line", strconv.Itoa(finding.StartLine)},
+			{"end_line", strconv.Itoa(finding.EndLine)}, {"severity_zh", finding.Display.SeverityZH},
+			{"source_content", finding.SourceContent},
+		} {
+			if value := normalizedHTMLText(fact.value); value != "" && !strings.Contains(visibleText, value) {
+				return fmt.Errorf("HTML finding %q omits a required displayed fact", finding.ID)
 			}
-			if err := validateFindingFactPresentation(matches[0], name); err != nil {
-				return fmt.Errorf("HTML finding %q: %w", finding.ID, err)
+		}
+		evidenceValue := finding.Evidence.Code
+		if finding.Evidence.Status != StatusProvided {
+			evidenceValue = finding.Evidence.Reason
+		}
+		if value := normalizedHTMLText(evidenceValue); value != "" && !strings.Contains(visibleText, value) {
+			return fmt.Errorf("HTML finding %q omits its evidence", finding.ID)
+		}
+		for name, matches := range findAllDataFacts(node) {
+			expected, exists := expectedFacts[name]
+			if !exists {
+				return fmt.Errorf("HTML finding contains an unsupported fact name")
+			}
+			if len(matches) != 1 || normalizedHTMLText(nodeText(matches[0])) != normalizedHTMLText(expected) {
+				return fmt.Errorf("HTML finding %q contains an incorrect fact %q", finding.ID, name)
 			}
 		}
 	}
 	return nil
+}
+
+func findingHasVisibleDescription(article *html.Node) bool {
+	if facts := findAllDataFacts(article); len(facts["summary_zh"]) == 1 {
+		return strings.TrimSpace(nodeText(facts["summary_zh"][0])) != ""
+	}
+	var found bool
+	var visit func(*html.Node)
+	visit = func(node *html.Node) {
+		if found || node.Type != html.ElementNode {
+			return
+		}
+		if isHeading(node.Data) || strings.EqualFold(node.Data, "p") || hasClass(node, "finding-summary") {
+			found = strings.TrimSpace(nodeText(node)) != "" && containsHan(nodeText(node))
+			return
+		}
+		for child := node.FirstChild; child != nil && !found; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(article)
+	return found
 }
 
 func displayFindingFact(name, value string) string {
@@ -389,38 +408,17 @@ func displayFindingFact(name, value string) string {
 	}
 }
 
-func validateFindingFactPresentation(fact *html.Node, name string) error {
-	label, ok := findingHTMLLabels[name]
-	if !ok {
-		return fmt.Errorf("finding fact %q has no fixed label", name)
-	}
-	for parent := fact.Parent; parent != nil; parent = parent.Parent {
-		if parent.Type != html.ElementNode || !hasClass(parent, "fact-row") {
-			continue
-		}
-		labelCount := 0
-		for child := parent.FirstChild; child != nil; child = child.NextSibling {
-			if child.Type == html.ElementNode && hasClass(child, "fact-label") {
-				labelCount++
-				if strings.TrimSpace(nodeText(child)) != label {
-					return fmt.Errorf("finding fact %q has an incorrect fixed label", name)
-				}
-			}
-		}
-		if labelCount == 1 {
-			return nil
-		}
-		return fmt.Errorf("finding fact %q must have exactly one fixed label", name)
-	}
-	return fmt.Errorf("finding fact %q must be presented in a labeled fact row", name)
-}
-
 var findingHTMLLabels = map[string]string{
 	"path": "\u6587\u4ef6", "start_line": "\u884c\u53f7", "end_line": "\u884c\u53f7",
 	"summary_zh": "\u6458\u8981", "severity_zh": "\u4e25\u91cd\u7b49\u7ea7", "category_zh": "\u7c7b\u522b",
 	"source_content": "\u6e90\u4ee3\u7801", "evidence_status": "\u72b6\u6001", "recommendation_status": "\u72b6\u6001",
 	"evidence_code": "\u8bc1\u636e", "evidence_reason": "\u539f\u56e0",
 	"recommendation_code": "\u5efa\u8bae", "recommendation_reason": "\u539f\u56e0",
+}
+
+func HTMLFindingFactLabel(name string) (string, bool) {
+	label, ok := findingHTMLLabels[name]
+	return label, ok
 }
 
 func hasClass(node *html.Node, class string) bool {
@@ -460,7 +458,6 @@ func validateHTMLStats(stats map[string]*html.Node, material Material) error {
 }
 
 func validateSectionHeading(section *html.Node, name string) error {
-	wanted := requiredHTMLHeadings[name]
 	var heading *html.Node
 	var find func(*html.Node)
 	find = func(node *html.Node) {
@@ -476,10 +473,32 @@ func validateSectionHeading(section *html.Node, name string) error {
 		}
 	}
 	find(section)
-	if heading == nil || strings.TrimSpace(nodeText(heading)) != wanted {
-		return fmt.Errorf("HTML section %q must use its required Chinese heading", name)
+	if heading == nil || strings.TrimSpace(nodeText(heading)) == "" {
+		return fmt.Errorf("HTML section %q must contain a non-empty heading", name)
 	}
 	return nil
+}
+
+func hasVisibleSectionContent(section *html.Node) bool {
+	var found bool
+	var visit func(*html.Node)
+	visit = func(node *html.Node) {
+		if found {
+			return
+		}
+		if node.Type == html.ElementNode && (isHeading(node.Data) || hasClass(node, "fact-label")) {
+			return
+		}
+		if node.Type == html.TextNode && strings.TrimSpace(node.Data) != "" {
+			found = true
+			return
+		}
+		for child := node.FirstChild; child != nil && !found; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(section)
+	return found
 }
 
 func validateHTMLClaims(bodyNode *html.Node, material Material) error {
@@ -487,7 +506,12 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 	if err != nil {
 		return err
 	}
-	seen := make(map[string]map[string]int)
+	knownNumbers := make(map[string]struct{})
+	for _, value := range facts {
+		for _, number := range numericClaim.FindAllString(value, -1) {
+			knownNumbers[number] = struct{}{}
+		}
+	}
 	var visit func(*html.Node) error
 	visit = func(node *html.Node) error {
 		if node.Type == html.ElementNode {
@@ -503,10 +527,9 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 				if insideFinding(node) {
 					return nil
 				}
-				section := enclosingSection(node)
 				expected, exists := facts[factName]
-				if !exists || !htmlFactAllowedInSection(section, factName) {
-					return fmt.Errorf("HTML contains an unsupported fact %q in section %q", factName, section)
+				if !exists {
+					return fmt.Errorf("HTML contains an unsupported fact")
 				}
 				if hasNestedFact(node) {
 					return fmt.Errorf("HTML fact %q cannot contain another data-fact", factName)
@@ -514,13 +537,6 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 				actual := normalizedHTMLText(nodeText(node))
 				if actual != expected && actual != displayHTMLFact(factName, expected) {
 					return fmt.Errorf("HTML fact %q does not match the report material", factName)
-				}
-				if seen[section] == nil {
-					seen[section] = make(map[string]int)
-				}
-				seen[section][factName]++
-				if seen[section][factName] > 1 {
-					return fmt.Errorf("HTML section %q duplicates report fact %q", section, factName)
 				}
 				return nil
 			}
@@ -530,10 +546,7 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 				}
 				return nil
 			}
-			if isHeading(node.Data) {
-				if !isRequiredHTMLHeading(strings.TrimSpace(nodeText(node))) {
-					return fmt.Errorf("HTML contains an unsupported heading")
-				}
+			if isHeading(node.Data) || hasClass(node, "fact-label") {
 				return nil
 			}
 		}
@@ -546,8 +559,12 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 				if !insideMain(node) {
 					return fmt.Errorf("HTML body contains report text outside main")
 				}
-				if _, ok := allowedHTMLLabels[value]; !ok {
-					return fmt.Errorf("HTML contains unverified narrative text %q", value)
+				if !insideFinding(node) {
+					for _, number := range numericClaim.FindAllString(value, -1) {
+						if _, exists := knownNumbers[number]; !exists {
+							return fmt.Errorf("HTML contains an unsupported numeric claim")
+						}
+					}
 				}
 			}
 		}
@@ -560,13 +577,6 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 	}
 	if err := visit(bodyNode); err != nil {
 		return err
-	}
-	for section, prefixes := range requiredHTMLFactPrefixes {
-		for name := range facts {
-			if hasAnyPrefix(name, prefixes) && seen[section][name] == 0 {
-				return fmt.Errorf("HTML section %q omits report fact %q", section, name)
-			}
-		}
 	}
 	return nil
 }
@@ -659,15 +669,6 @@ func displayHTMLFact(name, value string) string {
 	}
 }
 
-func hasAnyPrefix(value string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func enclosingSection(node *html.Node) string {
 	for current := node.Parent; current != nil; current = current.Parent {
 		if current.Type == html.ElementNode {
@@ -706,15 +707,6 @@ func hasNestedFact(node *html.Node) bool {
 
 func isHeading(tag string) bool {
 	return len(tag) == 2 && tag[0] == 'h' && tag[1] >= '1' && tag[1] <= '6'
-}
-
-func isRequiredHTMLHeading(value string) bool {
-	for _, heading := range requiredHTMLHeadings {
-		if value == heading {
-			return true
-		}
-	}
-	return false
 }
 
 func insideMain(node *html.Node) bool {

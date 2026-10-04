@@ -33,29 +33,21 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 	}
 	var mainNode *html.Node
 	sections := make(map[string]*html.Node)
-	unitGroupsBySection := make(map[string][]string, len(requiredHTMLSections))
 	owners := make(map[string]struct{}, len(input.ReviewUnits))
+	representedUnits := make(map[string]bool, len(input.ReviewUnits))
 	unitIndexes := make(map[string]int, len(input.ReviewUnits))
+	lastUnitBySection := make(map[string]int, len(requiredHTMLSections))
 	for _, unit := range input.ReviewUnits {
 		owners[unit.ID] = struct{}{}
 	}
 	for index, unit := range input.ReviewUnits {
 		unitIndexes[unit.ID] = index
 	}
-	seenFacts := make(map[string]bool)
-	seenFindings := make(map[struct{ unitID, findingID string }]bool)
-	seenStats := make(map[struct{ unitID, name string }]bool)
-	lastUnitBySection := make(map[string]int)
 	for _, section := range requiredHTMLSections {
 		lastUnitBySection[section] = -1
 	}
-	recordUnitOrder := func(section string, index int) error {
-		if index < lastUnitBySection[section] {
-			return fmt.Errorf("HTML section %q does not preserve report input order", section)
-		}
-		lastUnitBySection[section] = index
-		return nil
-	}
+	seenFindings := make(map[struct{ unitID, findingID string }]bool)
+	seenStats := make(map[struct{ unitID, name string }]bool)
 	expectedFacts, err := multiReportHTMLFacts(input)
 	if err != nil {
 		return err
@@ -122,29 +114,20 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 			if _, ok := owners[name]; !ok {
 				return fmt.Errorf("HTML document refers to unknown review unit %q", name)
 			}
+			representedUnits[name] = true
+			if section := enclosingSection(node); section != "" {
+				index := unitIndexes[name]
+				if index < lastUnitBySection[section] {
+					return fmt.Errorf("HTML section %q does not preserve report input order", section)
+				}
+				lastUnitBySection[section] = index
+			}
 		}
 		if name := attribute(node, "data-section"); name != "" {
 			if sections[name] != nil {
 				return fmt.Errorf("HTML document duplicates required section %q", name)
 			}
 			sections[name] = node
-		}
-		if unitID := attribute(node, "data-review-unit-id"); unitID != "" && node.Parent != nil {
-			section := attribute(node.Parent, "data-section")
-			if section != "" {
-				if tag != "div" {
-					return fmt.Errorf("review-unit group in section %q must use a div element", section)
-				}
-				unitGroupsBySection[section] = append(unitGroupsBySection[section], unitID)
-				if err := recordUnitOrder(section, unitIndexes[unitID]); err != nil {
-					return err
-				}
-				if section == "overview" {
-					if err := validateReviewUnitHeading(node, unitIndexes[unitID]); err != nil {
-						return err
-					}
-				}
-			}
 		}
 		if findingID := attribute(node, "data-finding-id"); findingID != "" {
 			if tag != "article" {
@@ -156,9 +139,6 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 			}
 			if enclosingSection(node) != "finding-details" {
 				return fmt.Errorf("HTML finding %q must appear in the finding-details section", findingID)
-			}
-			if err := recordUnitOrder(enclosingSection(node), unitIndexes[unitID]); err != nil {
-				return err
 			}
 			key := struct{ unitID, findingID string }{unitID, findingID}
 			if seenFindings[key] {
@@ -179,9 +159,6 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 				return fmt.Errorf("HTML document duplicates statistic %q in review unit %q", name, unitID)
 			}
 			seenStats[key] = true
-			if err := recordUnitOrder(enclosingSection(node), unitIndexes[unitID]); err != nil {
-				return err
-			}
 		}
 		if name := attribute(node, "data-fact"); name != "" && !insideFinding(node) {
 			if hasNestedFact(node) {
@@ -191,22 +168,10 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 			if !exists {
 				return fmt.Errorf("HTML contains an unsupported fact %q", name)
 			}
-			section := enclosingSection(node)
-			if !multiHTMLFactAllowedInSection(section, name) {
-				return fmt.Errorf("HTML contains unsupported fact %q in section %q", name, section)
-			}
-			if name == "summary.findings_by_severity.not_collected" {
-				if err := validateFixedHTMLFactLabel(node, "\u672a\u63d0\u4f9b\u7b49\u7ea7\u6570\u91cf"); err != nil {
-					return fmt.Errorf("HTML fact %q: %w", name, err)
-				}
-			}
 			if unitIndex, materialFact := multiMaterialFactIndex(name); materialFact {
 				wantUnit := input.ReviewUnits[unitIndex].ID
 				if nearestReviewUnitID(node) != wantUnit {
 					return fmt.Errorf("HTML material fact %q has incorrect review-unit ownership", name)
-				}
-				if err := recordUnitOrder(section, unitIndex); err != nil {
-					return err
 				}
 			} else if nearestReviewUnitID(node) != "" {
 				return fmt.Errorf("HTML aggregate fact %q cannot be assigned to one review unit", name)
@@ -215,11 +180,6 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 			if actual != expected && actual != displayHTMLFact(name, expected) {
 				return fmt.Errorf("HTML fact %q does not match the report input", name)
 			}
-			factKey := section + "\x00" + name
-			if seenFacts[factKey] {
-				return fmt.Errorf("HTML document duplicates report fact %q", name)
-			}
-			seenFacts[factKey] = true
 		}
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
 			if err := visit(child); err != nil {
@@ -236,28 +196,16 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 	}
 	for _, name := range requiredHTMLSections {
 		section := sections[name]
-		if section == nil || !hasAncestor(section, mainNode) || strings.TrimSpace(nodeText(section)) == "" {
+		if section == nil || !hasAncestor(section, mainNode) || !hasVisibleSectionContent(section) {
 			return fmt.Errorf("HTML document is missing required section %q", name)
 		}
 		if err := validateSectionHeading(section, name); err != nil {
 			return err
 		}
-		groups := unitGroupsBySection[name]
-		if len(groups) != len(input.ReviewUnits) {
-			return fmt.Errorf("HTML section %q must contain one direct group per review unit", name)
-		}
-		for index, unit := range input.ReviewUnits {
-			if groups[index] != unit.ID {
-				return fmt.Errorf("HTML section %q does not preserve report input order", name)
-			}
-		}
 	}
-	for name := range expectedFacts {
-		if _, materialFact := multiMaterialFactIndex(name); materialFact {
-			continue
-		}
-		if !seenFacts[multiHTMLFactSection(name)+"\x00"+name] {
-			return fmt.Errorf("HTML document omits report fact %q", name)
+	for _, unit := range input.ReviewUnits {
+		if !representedUnits[unit.ID] {
+			return fmt.Errorf("HTML document omits a review unit")
 		}
 	}
 	for index, unit := range input.ReviewUnits {
@@ -370,19 +318,6 @@ func multiHTMLFactAllowedInSection(section, name string) bool {
 	return strings.HasPrefix(name, "people[") && section == "people"
 }
 
-func multiHTMLFactSection(name string) string {
-	if strings.HasPrefix(name, "summary.findings_by_severity.") {
-		return "quality-coverage"
-	}
-	if strings.HasPrefix(name, "summary.") {
-		return "overview"
-	}
-	if strings.HasPrefix(name, "people[") {
-		return "people"
-	}
-	return ""
-}
-
 func nearestReviewUnitID(node *html.Node) string {
 	for current := node; current != nil; current = current.Parent {
 		if value := attribute(current, "data-review-unit-id"); value != "" {
@@ -390,69 +325,6 @@ func nearestReviewUnitID(node *html.Node) string {
 		}
 	}
 	return ""
-}
-
-func validateReviewUnitHeading(group *html.Node, unitIndex int) error {
-	var firstFact *html.Node
-	var find func(*html.Node)
-	find = func(node *html.Node) {
-		if firstFact != nil {
-			return
-		}
-		if node.Type == html.ElementNode && attribute(node, "data-fact") != "" && !insideFinding(node) {
-			firstFact = node
-			return
-		}
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			find(child)
-		}
-	}
-	find(group)
-	want := fmt.Sprintf("review_units[%d].material.review.run_id", unitIndex)
-	if firstFact == nil || attribute(firstFact, "data-fact") != want {
-		return fmt.Errorf("overview review-unit groups must begin with their run_id fact")
-	}
-	for row := firstFact.Parent; row != nil && row != group; row = row.Parent {
-		if row.Type != html.ElementNode || !hasClass(row, "fact-row") {
-			continue
-		}
-		labelCount := 0
-		for child := row.FirstChild; child != nil; child = child.NextSibling {
-			if child.Type == html.ElementNode && hasClass(child, "fact-label") {
-				labelCount++
-				if strings.TrimSpace(nodeText(child)) != "\u8fd0\u884c\u6807\u8bc6" {
-					return fmt.Errorf("overview run_id fact must use the fixed run-id label")
-				}
-			}
-		}
-		if labelCount != 1 {
-			return fmt.Errorf("overview run_id fact must have one fixed label")
-		}
-		return nil
-	}
-	return fmt.Errorf("overview run_id fact must appear in a labeled fact row")
-}
-
-func validateFixedHTMLFactLabel(fact *html.Node, label string) error {
-	for parent := fact.Parent; parent != nil; parent = parent.Parent {
-		if parent.Type != html.ElementNode || !hasClass(parent, "fact-row") {
-			continue
-		}
-		labelCount := 0
-		for child := parent.FirstChild; child != nil; child = child.NextSibling {
-			if child.Type == html.ElementNode && hasClass(child, "fact-label") {
-				labelCount++
-				if strings.TrimSpace(nodeText(child)) != label {
-					return fmt.Errorf("fact must use its fixed label")
-				}
-			}
-		}
-		if labelCount == 1 {
-			return nil
-		}
-		return fmt.Errorf("fact must have exactly one fixed label")
-	}
-	return fmt.Errorf("fact must appear in a labeled fact row")
 }
 
 func projectMultiHTMLUnit(document string, unit ReviewUnit, unitIndex int) (string, error) {

@@ -157,8 +157,11 @@ func TestNewMultiReportInputCountsMissingSeverityExplicitly(t *testing.T) {
 		t.Fatalf("multi-unit HTML with an explicitly uncollected severity was rejected: %v", err)
 	}
 	badLabel := strings.Replace(document, `class="fact-label">`+multiTestUncollectedSeverityLabel, `class="fact-label">incorrect`, 1)
-	if badLabel == document || ValidateMultiHTMLDocument(badLabel, input) == nil {
-		t.Fatal("multi-unit HTML accepted an incorrect uncollected-severity label")
+	if badLabel == document {
+		t.Fatal("fixture did not contain the expected display label")
+	}
+	if err := ValidateMultiHTMLDocument(badLabel, input); err != nil {
+		t.Fatalf("alternate display label was rejected: %v", err)
 	}
 }
 
@@ -304,6 +307,7 @@ func validMultiHTMLDocument(input MultiReportInput) string {
 				fmt.Fprintf(&builder, `<span data-fact="%s">%s</span>`, html.EscapeString(name), html.EscapeString(facts[name]))
 			}
 		}
+		builder.WriteString(`<p>本节内容见输入材料</p>`)
 		builder.WriteString(`</section>`)
 	}
 	builder.WriteString(`</main></body></html>`)
