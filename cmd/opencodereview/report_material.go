@@ -107,6 +107,7 @@ func buildReportMaterial(
 	provider, modelName string,
 	toolFailures []llmloop.ToolFailureDetail,
 	gitRunner *gitcmd.Runner,
+	snapshotCapture ...workspaceSnapshotCapture,
 ) (report.Material, error) {
 	if manifest == nil {
 		return report.Material{}, fmt.Errorf("native run manifest is unavailable")
@@ -142,9 +143,13 @@ func buildReportMaterial(
 	if err != nil {
 		return report.Material{}, err
 	}
+	workspaceSection := notCollectedSection("本次审查尚未采集工作区状态统计") // allow-non-english: report JSON requires Chinese user-facing facts
+	if manifest.Input.Mode == session.InputModeWorkspace && len(snapshotCapture) > 0 {
+		workspaceSection = workspaceSnapshotSection(snapshotCapture[0], manifest)
+	}
 	sections := report.MaterialSections{
 		GitStatistics:     branchGitStatisticsSection(gitRunner, repoDir, scope),
-		WorkspaceSnapshot: notCollectedSection("本次审查尚未采集工作区状态统计"),            // allow-non-english: report JSON requires Chinese user-facing facts
+		WorkspaceSnapshot: workspaceSection,
 		Achievements:      notCollectedSection("本次审查尚未采集模块或成果依据"),            // allow-non-english: report JSON requires Chinese user-facing facts
 		People:            notCollectedSection("本次审查尚未采集人员贡献依据"),             // allow-non-english: report JSON requires Chinese user-facing facts
 		KnowledgeSources:  notCollectedSection("本次审查 manifest 未记录实际读取的知识来源"), // allow-non-english: report JSON requires Chinese user-facing facts
