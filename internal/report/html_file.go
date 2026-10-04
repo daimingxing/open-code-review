@@ -17,12 +17,30 @@ func WriteHTML(target string, automatic bool, document string, material Material
 	}, os.Link)
 }
 
+func WriteMultiHTML(target string, automatic bool, document string, input MultiReportInput) (string, error) {
+	return writeMultiHTMLWith(target, automatic, document, input, func(dir, pattern string) (materialTempFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}, os.Link)
+}
+
 func writeHTMLWith(target string, automatic bool, document string, material Material, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
+	return writeHTMLWithValidation(target, automatic, document, func(prepared string) error {
+		return ValidateHTMLDocument(prepared, material)
+	}, createTemp, link)
+}
+
+func writeMultiHTMLWith(target string, automatic bool, document string, input MultiReportInput, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
+	return writeHTMLWithValidation(target, automatic, document, func(prepared string) error {
+		return ValidateMultiHTMLDocument(prepared, input)
+	}, createTemp, link)
+}
+
+func writeHTMLWithValidation(target string, automatic bool, document string, validate func(string) error, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
 	document, err := addReportHTMLStyles(document)
 	if err != nil {
 		return "", fmt.Errorf("prepare generated HTML: %w", err)
 	}
-	if err := ValidateHTMLDocument(document, material); err != nil {
+	if err := validate(document); err != nil {
 		return "", fmt.Errorf("validate generated HTML: %w", err)
 	}
 	absTarget, err := filepath.Abs(target)

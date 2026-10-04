@@ -128,3 +128,88 @@ func TestWriteHTMLRejectsNonArticleFindingAndDoesNotPublish(t *testing.T) {
 		t.Fatalf("rejected non-article finding left a final file: %v", err)
 	}
 }
+
+func TestWriteMultiHTMLRefusesOverwriteAndUsesFixedStyles(t *testing.T) {
+	first := validHTMLMaterial()
+	first.Review.RunID = "first-unit"
+	second := validHTMLMaterial()
+	second.Review.RunID = "second-unit"
+	input, err := NewMultiReportInput([]Material{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := multiHTMLWithoutStyles(t, validMultiHTMLDocument(input))
+	target := filepath.Join(t.TempDir(), "report.html")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteMultiHTML(target, false, document, input); err == nil {
+		t.Fatal("WriteMultiHTML should refuse an existing explicit path")
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "keep" {
+		t.Fatalf("existing target = %q, %v; want original content", data, err)
+	}
+	written, err := WriteMultiHTML(target, true, document, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(written) != "report(1).html" {
+		t.Fatalf("automatic path = %q", written)
+	}
+	data, err := os.ReadFile(written)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "<style>") != 1 || !strings.Contains(string(data), reportHTMLStyles) {
+		t.Fatal("WriteMultiHTML did not insert exactly one fixed report stylesheet")
+	}
+}
+
+func TestWriteMultiHTMLRejectsInvalidDocumentWithoutPublishing(t *testing.T) {
+	first := validHTMLMaterial()
+	first.Review.RunID = "first-unit"
+	second := validHTMLMaterial()
+	second.Review.RunID = "second-unit"
+	input, err := NewMultiReportInput([]Material{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := strings.Replace(multiHTMLWithoutStyles(t, validMultiHTMLDocument(input)), `risk-critical">1`, `risk-critical">9`, 1)
+	target := filepath.Join(t.TempDir(), "report.html")
+	if _, err := WriteMultiHTML(target, false, document, input); err == nil {
+		t.Fatal("WriteMultiHTML should reject altered statistics")
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("invalid multi-unit HTML left final file: %v", err)
+	}
+}
+
+func TestWriteMultiHTMLHardLinkFailureDoesNotPublish(t *testing.T) {
+	first := validHTMLMaterial()
+	first.Review.RunID = "first-unit"
+	second := validHTMLMaterial()
+	second.Review.RunID = "second-unit"
+	input, err := NewMultiReportInput([]Material{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "report.html")
+	_, err = writeMultiHTMLWith(target, false, multiHTMLWithoutStyles(t, validMultiHTMLDocument(input)), input, createOSMaterialTemp, func(string, string) error {
+		return errors.New("operation not supported")
+	})
+	if err == nil || !strings.Contains(err.Error(), "hard link") {
+		t.Fatalf("writeMultiHTMLWith error = %v, want hard-link failure", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("unsupported hard link left final file: %v", err)
+	}
+}
+
+func multiHTMLWithoutStyles(t *testing.T, document string) string {
+	t.Helper()
+	withoutStyles := strings.Replace(document, "<style>"+reportHTMLStyles+"</style>", "", 1)
+	if withoutStyles == document {
+		t.Fatal("multi-unit HTML fixture is missing the injected stylesheet")
+	}
+	return withoutStyles
+}

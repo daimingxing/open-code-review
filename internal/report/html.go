@@ -28,6 +28,7 @@ h2 { margin: 0 0 .75rem; font-size: 1.35rem; }
 .report-statistic { padding: .75rem; border: 1px solid #c7cdd3; border-radius: 4px; }
 output { display: block; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 article { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
+section:not([data-section="finding-details"]) > div[data-review-unit-id] { margin: .75rem 0; padding: .5rem 0 .75rem; border-bottom: 1px solid #c7cdd3; }
 article h3 { margin-top: 0; }
 pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fact-row pre { margin: 0; }
@@ -65,6 +66,7 @@ var allowedHTMLLabels = map[string]struct{}{
 	"\u6750\u6599\u4e8b\u5b9e":             {},
 	"\u9879\u76ee\u7ed3\u6784\u68c0\u67e5": {},
 	"\u95ee\u9898\u6570\u91cf":             {}, "\u4e25\u91cd": {}, "\u9ad8": {}, "\u4e2d": {}, "\u4f4e": {},
+	"\u672a\u63d0\u4f9b\u7b49\u7ea7\u6570\u91cf": {},
 	"\u5b8c\u6210": {}, "\u5931\u8d25": {}, "\u8df3\u8fc7": {}, "\u590d\u7528": {},
 }
 
@@ -414,7 +416,9 @@ func validateHTMLStats(stats map[string]*html.Node, material Material) error {
 		expected["risk-"+severity] = 0
 	}
 	for _, finding := range material.Findings {
-		expected["risk-"+finding.Severity]++
+		if finding.SeverityStatus == StatusProvided {
+			expected["risk-"+finding.Severity]++
+		}
 	}
 	if len(stats) != len(expected) {
 		return fmt.Errorf("HTML report contains %d statistics; expected %d", len(stats), len(expected))
@@ -716,6 +720,7 @@ func validateAttributes(node *html.Node) error {
 		"data-review-status": {}, "data-run-id": {}, "data-section": {}, "data-stat": {},
 		"data-finding-id": {}, "data-severity": {}, "data-category": {}, "data-path": {},
 		"data-start-line": {}, "data-end-line": {}, "data-fact": {},
+		"data-report-kind": {}, "data-review-unit-count": {}, "data-review-unit-id": {},
 	}
 	for _, attr := range node.Attr {
 		name := strings.ToLower(attr.Key)
