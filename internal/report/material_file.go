@@ -15,14 +15,20 @@ import (
 	"strings"
 )
 
-type materialOutputFile interface {
+type materialTempFile interface {
 	io.Writer
-	Stat() (os.FileInfo, error)
+	Name() string
 	Sync() error
 	Close() error
 }
 
 func WriteMaterial(target string, automatic bool, material Material) (string, error) {
+	return writeMaterialWith(target, automatic, material, func(dir, pattern string) (materialTempFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}, os.Link)
+}
+
+func writeMaterialWith(target string, automatic bool, material Material, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
 	if err := ValidateMaterial(material); err != nil {
 		return "", fmt.Errorf("validate report material: %w", err)
 	}
@@ -38,7 +44,7 @@ func WriteMaterial(target string, automatic bool, material Material) (string, er
 	if !info.IsDir() {
 		return "", fmt.Errorf("report parent path %q is not a directory", parent)
 	}
-	temp, err := os.CreateTemp(parent, ".ocr-report-*.tmp")
+	temp, err := createTemp(parent, ".ocr-report-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temporary report file: %w", err)
 	}
@@ -65,86 +71,16 @@ func WriteMaterial(target string, automatic bool, material Material) (string, er
 		if number > 0 {
 			candidate = numberedMaterialPath(absTarget, number)
 		}
-		if err := os.Link(tempPath, candidate); err == nil {
+		if err := link(tempPath, candidate); err == nil {
 			return candidate, nil
 		} else if automatic && errors.Is(err, fs.ErrExist) {
 			continue
 		} else if errors.Is(err, fs.ErrExist) {
 			return "", fmt.Errorf("report file %q already exists", candidate)
 		}
-
-		source, err := os.Open(tempPath)
-		if err != nil {
-			return "", fmt.Errorf("open temporary report file for copy: %w", err)
-		}
-		created, createdInfo, copyErr := copyMaterialExclusively(source, candidate)
-		copyErr = errors.Join(copyErr, source.Close())
-		if copyErr == nil {
-			return candidate, nil
-		}
-		if !created && errors.Is(copyErr, fs.ErrExist) {
-			if automatic {
-				continue
-			}
-			return "", fmt.Errorf("report file %q already exists", candidate)
-		}
-		if created {
-			cleanupErr := removeIncompleteMaterial(candidate, createdInfo)
-			return "", errors.Join(fmt.Errorf("create report file %q exclusively: %w", candidate, copyErr), cleanupErr)
-		}
-		return "", fmt.Errorf("create report file %q exclusively: %w", candidate, copyErr)
+		return "", fmt.Errorf("publish report material %q using a same-directory hard link (the filesystem may not support hard links): %w", candidate, err)
 	}
 	return "", fmt.Errorf("could not allocate a unique report file near %q", absTarget)
-}
-
-// 文件系统不支持硬链接时使用独占创建回退；只在路径仍指向本次创建的文件时清理失败目标。 // allow-non-english: preserve the CI marker for this Chinese ownership constraint
-func copyMaterialExclusively(source io.Reader, targetPath string) (bool, os.FileInfo, error) {
-	return copyMaterialExclusivelyWith(source, targetPath, func(path string) (materialOutputFile, error) {
-		return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	})
-}
-
-func copyMaterialExclusivelyWith(source io.Reader, targetPath string, open func(string) (materialOutputFile, error)) (bool, os.FileInfo, error) {
-	target, err := open(targetPath)
-	if err != nil {
-		return false, nil, err
-	}
-
-	createdInfo, operationErr := target.Stat()
-	if operationErr != nil {
-		operationErr = fmt.Errorf("inspect created report material: %w", operationErr)
-	} else if _, err := io.Copy(target, source); err != nil {
-		operationErr = fmt.Errorf("copy report material: %w", err)
-	} else if err := target.Sync(); err != nil {
-		operationErr = fmt.Errorf("flush report material: %w", err)
-	}
-	if err := target.Close(); err != nil {
-		operationErr = errors.Join(operationErr, fmt.Errorf("close report material: %w", err))
-	}
-	if operationErr != nil {
-		if err := removeIncompleteMaterial(targetPath, createdInfo); err != nil {
-			operationErr = errors.Join(operationErr, fmt.Errorf("remove incomplete report material: %w", err))
-		}
-		return true, createdInfo, operationErr
-	}
-	return true, createdInfo, nil
-}
-
-func removeIncompleteMaterial(targetPath string, createdInfo os.FileInfo) error {
-	if createdInfo == nil {
-		return fmt.Errorf("cannot verify ownership of report file %q", targetPath)
-	}
-	currentInfo, err := os.Stat(targetPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !os.SameFile(createdInfo, currentInfo) {
-		return nil
-	}
-	return os.Remove(targetPath)
 }
 
 func PathsConflict(nativePath, materialPath string) (bool, error) {
