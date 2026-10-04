@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alibaba/open-code-review/internal/gitcmd"
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 )
@@ -22,6 +23,15 @@ func TestParseWorkspaceStatus(t *testing.T) {
 	}
 	if len(entries) != 3 || entries[0].Path != "new.go" || entries[1].IndexStatus != "A" || entries[2].WorktreeStatus != "M" {
 		t.Fatalf("workspace entries = %+v", entries)
+	}
+}
+
+func TestCollectWorkspaceSnapshotRejectsUnbornHead(t *testing.T) {
+	repoDir := t.TempDir()
+	retryTestGit(t, repoDir, "init", "-q", "-b", "main")
+	_, err := collectWorkspaceSnapshot(t.Context(), gitcmd.New(2), repoDir, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "HEAD lookup failed") {
+		t.Fatalf("collectWorkspaceSnapshot error = %v, want HEAD lookup failure", err)
 	}
 }
 

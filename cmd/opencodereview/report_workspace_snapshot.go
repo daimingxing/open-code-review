@@ -47,7 +47,10 @@ func collectWorkspaceSnapshot(ctx context.Context, runner *gitcmd.Runner, repoDi
 	if err != nil {
 		return workspaceSnapshot{}, fmt.Errorf("git status failed")
 	}
-	head, _ := runner.Output(ctx, repoDir, "rev-parse", "--verify", "--end-of-options", "HEAD")
+	head, err := runner.Output(ctx, repoDir, "rev-parse", "--verify", "--end-of-options", "HEAD")
+	if err != nil {
+		return workspaceSnapshot{}, fmt.Errorf("git HEAD lookup failed")
+	}
 	headSHA := strings.TrimSpace(string(head))
 	statusSum := sha256.Sum256(status)
 	statusSHA := hex.EncodeToString(statusSum[:])
