@@ -6,14 +6,12 @@ package report
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
-	"testing/iotest"
 )
 
 func TestWriteMaterialRejectsExistingExplicitPath(t *testing.T) {
@@ -88,29 +86,103 @@ func TestWriteMaterialNumbersAutomaticCollisionsExclusively(t *testing.T) {
 	}
 }
 
-func TestCopyMaterialExclusivelyDoesNotOverwriteAndRetainsPartialFailure(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "report.json")
-	created, err := copyMaterialExclusively(strings.NewReader("complete"), target)
-	if err != nil || !created {
-		t.Fatalf("copyMaterialExclusively = (%t, %v), want created file", created, err)
-	}
-	if _, err := copyMaterialExclusively(strings.NewReader("replacement"), target); !errors.Is(err, fs.ErrExist) {
-		t.Fatalf("copyMaterialExclusively on existing target = %v, want ErrExist", err)
-	}
-	data, err := os.ReadFile(target)
-	if err != nil || string(data) != "complete" {
-		t.Fatalf("existing target = %q, %v; want original content", data, err)
-	}
+type injectedMaterialTempFile struct {
+	file    *os.File
+	failAt  string
+	failure error
+}
 
-	partial := filepath.Join(t.TempDir(), "partial.json")
-	copyErr := errors.New("injected read failure")
-	created, err = copyMaterialExclusively(io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(copyErr)), partial)
-	if !created || !errors.Is(err, copyErr) {
-		t.Fatalf("failed copy = (%t, %v), want created partial file and source error", created, err)
+func (f *injectedMaterialTempFile) Name() string { return f.file.Name() }
+func (f *injectedMaterialTempFile) Write(data []byte) (int, error) {
+	if f.failAt == "write" {
+		return 0, f.failure
 	}
-	data, readErr := os.ReadFile(partial)
-	if readErr != nil || string(data) != "partial" {
-		t.Fatalf("partial destination = %q, %v; want retained partial bytes", data, readErr)
+	return f.file.Write(data)
+}
+func (f *injectedMaterialTempFile) Sync() error {
+	if f.failAt == "sync" {
+		return f.failure
+	}
+	return f.file.Sync()
+}
+func (f *injectedMaterialTempFile) Close() error {
+	err := f.file.Close()
+	if f.failAt == "close" {
+		return errors.Join(err, f.failure)
+	}
+	return err
+}
+
+func createOSMaterialTemp(dir, pattern string) (materialTempFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
+func TestWriteMaterialTempFileFailuresDoNotPublish(t *testing.T) {
+	for _, phase := range []string{"write", "sync", "close"} {
+		t.Run(phase, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "report.json")
+			injected := errors.New("injected temporary " + phase + " failure")
+			var tempPath string
+			createTemp := func(dir, pattern string) (materialTempFile, error) {
+				file, err := os.CreateTemp(dir, pattern)
+				if err != nil {
+					return nil, err
+				}
+				tempPath = file.Name()
+				return &injectedMaterialTempFile{file: file, failAt: phase, failure: injected}, nil
+			}
+
+			if _, err := writeMaterialWith(target, false, validMaterial(), createTemp, os.Link); !errors.Is(err, injected) {
+				t.Fatalf("%s failure = %v, want injected error", phase, err)
+			}
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("%s failure published final material: %v", phase, err)
+			}
+			if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+				t.Fatalf("%s failure left temporary material: %v", phase, err)
+			}
+		})
+	}
+}
+
+func TestWriteMaterialLinkFailureDoesNotPublish(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		t.Run(map[bool]string{false: "explicit", true: "automatic"}[automatic], func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "review.report.json")
+			if automatic {
+				if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			linkCalls := 0
+			link := func(_, newPath string) error {
+				linkCalls++
+				if automatic && newPath == target {
+					return fs.ErrExist
+				}
+				return errors.New("operation not supported")
+			}
+
+			_, err := writeMaterialWith(target, automatic, validMaterial(), createOSMaterialTemp, link)
+			if err == nil || !strings.Contains(err.Error(), "hard link") {
+				t.Fatalf("link failure = %v, want an explicit hard-link publication error", err)
+			}
+			if automatic {
+				if linkCalls != 2 {
+					t.Fatalf("automatic publication tried link %d times, want collision then unsupported numbered path", linkCalls)
+				}
+				data, readErr := os.ReadFile(target)
+				if readErr != nil || string(data) != "keep" {
+					t.Fatalf("existing automatic target = %q, %v; want original content", data, readErr)
+				}
+				if _, statErr := os.Stat(numberedMaterialPath(target, 1)); !os.IsNotExist(statErr) {
+					t.Fatalf("unsupported automatic publication left numbered material: %v", statErr)
+				}
+			} else if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+				t.Fatalf("unsupported explicit publication left final material: %v", statErr)
+			}
+		})
 	}
 }
 

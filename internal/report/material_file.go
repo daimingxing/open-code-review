@@ -15,7 +15,20 @@ import (
 	"strings"
 )
 
+type materialTempFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Close() error
+}
+
 func WriteMaterial(target string, automatic bool, material Material) (string, error) {
+	return writeMaterialWith(target, automatic, material, func(dir, pattern string) (materialTempFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}, os.Link)
+}
+
+func writeMaterialWith(target string, automatic bool, material Material, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
 	if err := ValidateMaterial(material); err != nil {
 		return "", fmt.Errorf("validate report material: %w", err)
 	}
@@ -31,7 +44,7 @@ func WriteMaterial(target string, automatic bool, material Material) (string, er
 	if !info.IsDir() {
 		return "", fmt.Errorf("report parent path %q is not a directory", parent)
 	}
-	temp, err := os.CreateTemp(parent, ".ocr-report-*.tmp")
+	temp, err := createTemp(parent, ".ocr-report-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temporary report file: %w", err)
 	}
@@ -58,53 +71,16 @@ func WriteMaterial(target string, automatic bool, material Material) (string, er
 		if number > 0 {
 			candidate = numberedMaterialPath(absTarget, number)
 		}
-		if err := os.Link(tempPath, candidate); err == nil {
+		if err := link(tempPath, candidate); err == nil {
 			return candidate, nil
 		} else if automatic && errors.Is(err, fs.ErrExist) {
 			continue
 		} else if errors.Is(err, fs.ErrExist) {
 			return "", fmt.Errorf("report file %q already exists", candidate)
 		}
-
-		source, err := os.Open(tempPath)
-		if err != nil {
-			return "", fmt.Errorf("open temporary report file for copy: %w", err)
-		}
-		created, copyErr := copyMaterialExclusively(source, candidate)
-		copyErr = errors.Join(copyErr, source.Close())
-		if copyErr == nil {
-			return candidate, nil
-		}
-		if !created && errors.Is(copyErr, fs.ErrExist) {
-			if automatic {
-				continue
-			}
-			return "", fmt.Errorf("report file %q already exists", candidate)
-		}
-		if created {
-			return "", fmt.Errorf("create report file %q exclusively; an incomplete file may remain: %w", candidate, copyErr)
-		}
-		return "", fmt.Errorf("create report file %q exclusively: %w", candidate, copyErr)
+		return "", fmt.Errorf("publish report material %q using a same-directory hard link (the filesystem may not support hard links): %w", candidate, err)
 	}
 	return "", fmt.Errorf("could not allocate a unique report file near %q", absTarget)
-}
-
-// 文件系统不支持硬链接时使用独占创建回退；复制期间目标可能可见，失败时保留文件以避免删除并发替换路径。 // allow-non-english: explains portability and cleanup safety
-func copyMaterialExclusively(source io.Reader, targetPath string) (bool, error) {
-	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return false, err
-	}
-	if _, err := io.Copy(target, source); err != nil {
-		return true, errors.Join(fmt.Errorf("copy report material: %w", err), target.Close())
-	}
-	if err := target.Sync(); err != nil {
-		return true, errors.Join(fmt.Errorf("flush report material: %w", err), target.Close())
-	}
-	if err := target.Close(); err != nil {
-		return true, fmt.Errorf("close report material: %w", err)
-	}
-	return true, nil
 }
 
 func PathsConflict(nativePath, materialPath string) (bool, error) {
