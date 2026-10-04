@@ -409,7 +409,7 @@ func writeReportInput(t *testing.T, material report.Material) string {
 
 func reportHTMLFixture(material report.Material) string {
 	var builder strings.Builder
-	builder.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>审查报告</title><style>*{box-sizing:border-box}body{font-family:sans-serif;max-width:72rem;margin:auto;padding:1rem}section{border-bottom:1px solid #bbb;padding:1rem 0}article{border:1px solid #888;padding:1rem;margin:1rem 0}main [data-fact]{overflow-wrap:anywhere;word-break:break-word}article span{display:block;margin-top:.4rem;overflow-wrap:anywhere}pre{white-space:pre-wrap}</style></head><body>`) // allow-non-english: fixture is the model's Chinese HTML response
+	builder.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>审查报告</title></head><body>`) // allow-non-english: fixture is the model's Chinese HTML response
 	fmt.Fprintf(&builder, `<main data-review-status="%s" data-run-id="%s">`, html.EscapeString(string(material.Review.Status)), html.EscapeString(material.Review.RunID))
 	sections := []struct{ id, title string }{
 		{"overview", "\u62a5\u544a\u6982\u89c8"}, {"quality-coverage", "\u8d28\u91cf\u4e0e\u8986\u76d6"},
@@ -488,8 +488,42 @@ func appendReportMaterialFacts(builder *strings.Builder, facts map[string]string
 	sort.Strings(keys)
 	for _, key := range keys {
 		value := reportTestFactDisplay(key, facts[key])
-		fmt.Fprintf(builder, `<span data-fact="%s">%s</span>`, html.EscapeString(key), html.EscapeString(value))
+		fmt.Fprintf(builder, `<div class="fact-row"><strong class="fact-label">%s</strong><span data-fact="%s">%s</span></div>`, reportTestFactLabel(key), html.EscapeString(key), html.EscapeString(value))
 	}
+}
+
+func reportTestFactLabel(key string) string {
+	labels := map[string]string{
+		"repository.name": "仓库", "repository.identity.status": "仓库标识", "review.status": "审查状态", "scope.mode": "审查范围",
+		"review.started_at": "开始时间", "review.completed_at": "结束时间", "review.elapsed_ms": "耗时", "review.provider": "提供方", "review.model": "模型",
+		"scope.requested_from": "基准提交", "scope.requested_head": "目标提交", "scope.exact_range": "实际范围", "scope.source_artifact.status": "来源",
+		"sections.structural_checks.status": "项目结构检查", "schema_version": "材料版本", "review.run_id": "运行标识",
+	}
+	if label, ok := labels[key]; ok {
+		return label
+	}
+	if strings.HasSuffix(key, ".status") {
+		return "状态"
+	}
+	if strings.Contains(key, "reason") {
+		return "原因"
+	}
+	if strings.HasPrefix(key, "coverage.") {
+		return "审查覆盖"
+	}
+	if strings.HasPrefix(key, "sections.people.") {
+		return "人员"
+	}
+	if strings.HasPrefix(key, "sections.achievements.") {
+		return "成果"
+	}
+	if strings.HasPrefix(key, "sections.knowledge_sources.") {
+		return "知识来源"
+	}
+	if strings.HasPrefix(key, "limitations[") {
+		return "限制"
+	}
+	return "材料事实"
 }
 
 func reportTestFactAllowedInSection(section, key string) bool {
@@ -545,7 +579,8 @@ func appendReportStatistics(builder *strings.Builder, material report.Material) 
 		}
 	}
 	for _, stat := range stats {
-		fmt.Fprintf(builder, `<output data-stat="%s">%d</output>`, stat.name, stat.count)
+		labels := map[string]string{"finding-count": "问题数量", "risk-critical": "严重", "risk-high": "高", "risk-medium": "中", "risk-low": "低", "coverage-selected": "选中", "coverage-completed": "完成", "coverage-failed": "失败", "coverage-skipped": "跳过", "coverage-reused": "复用"}
+		fmt.Fprintf(builder, `<div class="report-statistic"><strong class="fact-label">%s</strong><output data-stat="%s">%d</output></div>`, labels[stat.name], stat.name, stat.count)
 	}
 }
 

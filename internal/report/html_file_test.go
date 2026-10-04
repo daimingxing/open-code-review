@@ -17,24 +17,31 @@ func TestWriteHTMLRefusesOverwriteAndNumbersAutomaticNames(t *testing.T) {
 	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WriteHTML(target, false, validHTMLDocument(validHTMLMaterial()), validHTMLMaterial()); err == nil {
+	if _, err := WriteHTML(target, false, validHTMLModelDocument(validHTMLMaterial()), validHTMLMaterial()); err == nil {
 		t.Fatal("WriteHTML should refuse an existing explicit path")
 	}
 	if data, err := os.ReadFile(target); err != nil || string(data) != "keep" {
 		t.Fatalf("existing target = %q, %v; want original content", data, err)
 	}
-	written, err := WriteHTML(target, true, validHTMLDocument(validHTMLMaterial()), validHTMLMaterial())
+	written, err := WriteHTML(target, true, validHTMLModelDocument(validHTMLMaterial()), validHTMLMaterial())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if filepath.Base(written) != "report-2026-10-04(1).html" {
 		t.Fatalf("automatic path = %q", written)
 	}
+	data, err := os.ReadFile(written)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "<style>") != 1 || !strings.Contains(string(data), reportHTMLStyles) {
+		t.Fatal("WriteHTML did not insert exactly one fixed report stylesheet")
+	}
 }
 
 func TestWriteHTMLHardLinkFailureDoesNotPublish(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "report.html")
-	document := validHTMLDocument(validHTMLMaterial())
+	document := validHTMLModelDocument(validHTMLMaterial())
 	_, err := writeHTMLWith(target, false, document, validHTMLMaterial(), createOSMaterialTemp, func(string, string) error {
 		return errors.New("operation not supported")
 	})
@@ -56,10 +63,29 @@ func TestWriteHTMLHardLinkFailureDoesNotPublish(t *testing.T) {
 func TestWriteHTMLRejectsInvalidDocumentBeforePublishing(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "report.html")
 	material := validHTMLMaterial()
-	if _, err := WriteHTML(target, false, strings.Replace(validHTMLDocument(material), `risk-critical">1`, `risk-critical">9`, 1), material); err == nil {
+	if _, err := WriteHTML(target, false, strings.Replace(validHTMLModelDocument(material), `risk-critical">1`, `risk-critical">9`, 1), material); err == nil {
 		t.Fatal("WriteHTML should reject altered statistics")
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("invalid HTML left final file: %v", err)
+	}
+}
+
+func TestWriteHTMLRejectsModelStylesAndDoesNotPublish(t *testing.T) {
+	material := validHTMLMaterial()
+	base := validHTMLModelDocument(material)
+	for name, document := range map[string]string{
+		"hidden findings": strings.Replace(base, `</head>`, `<style>article{height:0;overflow:hidden}</style></head>`, 1),
+		"style attribute": strings.Replace(base, `<main `, `<main style="display:none" `, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "report.html")
+			if _, err := WriteHTML(target, false, document, material); err == nil {
+				t.Fatal("WriteHTML accepted model-controlled styles")
+			}
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("rejected model styles left a final file: %v", err)
+			}
+		})
 	}
 }

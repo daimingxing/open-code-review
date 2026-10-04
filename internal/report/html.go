@@ -10,16 +10,31 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
 
 const MaxHTMLDocumentBytes = 4 << 20
+const reportHTMLStyles = `
+* { box-sizing: border-box; }
+body { max-width: 76rem; margin: 0 auto; padding: 1.5rem; background: #fff; color: #202a33; font-family: system-ui, sans-serif; line-height: 1.55; }
+section { padding: 1.25rem 0; border-bottom: 1px solid #c7cdd3; }
+h1, h2, h3 { line-height: 1.25; }
+h2 { margin: 0 0 .75rem; font-size: 1.35rem; }
+.fact-row { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); gap: .5rem 1rem; padding: .35rem 0; }
+.fact-label { color: #4b5563; font-weight: 600; }
+[data-fact] { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.report-statistics { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; }
+.report-statistic { padding: .75rem; border: 1px solid #c7cdd3; border-radius: 4px; }
+output { display: block; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+article { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
+article h3 { margin-top: 0; }
+pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) { body { padding: 1rem; } .fact-row { grid-template-columns: minmax(0, 1fr); } }
+`
 
 var (
 	localAbsolutePath = regexp.MustCompile(`(?i)([a-z]:[\\/]|\\\\[^\\]+\\|(?:^|[\s"'=(:,>])/(?:[a-z0-9._-]+/)+[a-z0-9._-]+(?:/[a-z0-9._-]+)*|(?:^|[\s"'=(:,>])/(?:root|home|users|private|tmp|var|opt|srv|etc|usr|mnt|media|workplace|workspace|volumes|system|applications|library)(?:[/\s"'>]|$))`)
-	unsafeCSS         = regexp.MustCompile(`(?i)(url\s*\(|@import|@font-face|expression\s*\(|behavior\s*:|-moz-binding|display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:[;}]|$)|font-size\s*:\s*0(?:[;}]|$)|content-visibility\s*:\s*hidden|https?\s*:)`)
 )
 
 var requiredHTMLSections = []string{
@@ -46,7 +61,10 @@ var allowedHTMLLabels = map[string]struct{}{
 	"\u7c7b\u522b": {}, "\u6587\u4ef6": {}, "\u884c\u53f7": {}, "\u72b6\u6001": {}, "\u539f\u56e0": {},
 	"\u77e5\u8bc6\u6765\u6e90": {}, "\u6210\u679c": {}, "\u4eba\u5458": {}, "\u6765\u6e90": {}, "\u9650\u5236": {},
 	"\u6750\u6599\u7248\u672c": {}, "\u8fd0\u884c\u6807\u8bc6": {}, "\u9009\u4e2d": {},
+	"\u6750\u6599\u4e8b\u5b9e":             {},
 	"\u9879\u76ee\u7ed3\u6784\u68c0\u67e5": {},
+	"\u95ee\u9898\u6570\u91cf":             {}, "\u4e25\u91cd": {}, "\u9ad8": {}, "\u4e2d": {}, "\u4f4e": {},
+	"\u5b8c\u6210": {}, "\u5931\u8d25": {}, "\u8df3\u8fc7": {}, "\u590d\u7528": {},
 }
 
 func ValidateHTMLDocument(document string, material Material) error {
@@ -74,6 +92,7 @@ func ValidateHTMLDocument(document string, material Material) error {
 	findings := make(map[string]*html.Node)
 	title := ""
 	charset := false
+	styleCount := 0
 	var visit func(*html.Node) error
 	visit = func(node *html.Node) error {
 		if node.Type == html.TextNode && localAbsolutePath.MatchString(node.Data) {
@@ -117,9 +136,9 @@ func ValidateHTMLDocument(document string, material Material) error {
 					charset = true
 				}
 			case "style":
-				css := decodeCSS(nodeText(node))
-				if unsafeCSS.MatchString(css) {
-					return fmt.Errorf("HTML document contains unsafe CSS")
+				styleCount++
+				if nodeText(node) != reportHTMLStyles {
+					return fmt.Errorf("HTML document contains a stylesheet outside the report template")
 				}
 			}
 			if err := validateAttributes(node); err != nil {
@@ -157,6 +176,9 @@ func ValidateHTMLDocument(document string, material Material) error {
 	if htmlNode == nil || headNode == nil || bodyNode == nil || mainNode == nil || strings.TrimSpace(title) == "" || !charset {
 		return fmt.Errorf("HTML document requires html, head, utf-8 charset, title, body, and main elements")
 	}
+	if styleCount != 1 {
+		return fmt.Errorf("HTML document must contain exactly one report stylesheet")
+	}
 	if !hasAncestor(mainNode, bodyNode) {
 		return fmt.Errorf("main element must be inside body")
 	}
@@ -192,7 +214,58 @@ func ValidateHTMLDocument(document string, material Material) error {
 	if err := validateHTMLStats(stats, material); err != nil {
 		return err
 	}
-	return validateHTMLClaims(mainNode, material)
+	return validateHTMLClaims(bodyNode, material)
+}
+
+func addReportHTMLStyles(document string) (string, error) {
+	trimmed := strings.TrimSpace(document)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "<!doctype html>") {
+		return "", fmt.Errorf("HTML document must begin with an HTML doctype")
+	}
+	if len(document) == 0 || len(document) > MaxHTMLDocumentBytes {
+		return "", fmt.Errorf("HTML document size must be between 1 byte and %d bytes", MaxHTMLDocumentBytes)
+	}
+	root, err := html.Parse(strings.NewReader(document))
+	if err != nil {
+		return "", fmt.Errorf("parse model HTML: %w", err)
+	}
+	var headNode *html.Node
+	var visit func(*html.Node) error
+	visit = func(node *html.Node) error {
+		if node.Type == html.ElementNode {
+			if strings.EqualFold(node.Data, "head") && headNode == nil {
+				headNode = node
+			}
+			if strings.EqualFold(node.Data, "style") {
+				return fmt.Errorf("model HTML must not provide a stylesheet")
+			}
+			for _, attr := range node.Attr {
+				if strings.EqualFold(attr.Key, "style") {
+					return fmt.Errorf("model HTML must not provide style attributes")
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if err := visit(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visit(root); err != nil {
+		return "", err
+	}
+	if headNode == nil {
+		return "", fmt.Errorf("model HTML must contain a head element")
+	}
+	styleNode := &html.Node{Type: html.ElementNode, Data: "style"}
+	styleNode.AppendChild(&html.Node{Type: html.TextNode, Data: reportHTMLStyles})
+	headNode.AppendChild(styleNode)
+	var builder strings.Builder
+	if err := html.Render(&builder, root); err != nil {
+		return "", fmt.Errorf("render report stylesheet: %w", err)
+	}
+	return builder.String(), nil
 }
 
 func validateHTMLFindings(nodes map[string]*html.Node, material Material) error {
@@ -299,7 +372,7 @@ func validateSectionHeading(section *html.Node, name string) error {
 	return nil
 }
 
-func validateHTMLClaims(mainNode *html.Node, material Material) error {
+func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 	facts, err := materialHTMLFacts(material)
 	if err != nil {
 		return err
@@ -308,6 +381,11 @@ func validateHTMLClaims(mainNode *html.Node, material Material) error {
 	var visit func(*html.Node) error
 	visit = func(node *html.Node) error {
 		if node.Type == html.ElementNode {
+			if !insideMain(node) && node != bodyNode && node.Data != "main" {
+				if strings.TrimSpace(nodeText(node)) != "" || attribute(node, "data-fact") != "" {
+					return fmt.Errorf("HTML body contains report content outside main")
+				}
+			}
 			if factName := attribute(node, "data-fact"); factName != "" {
 				if insideFinding(node) {
 					return nil
@@ -328,6 +406,9 @@ func validateHTMLClaims(mainNode *html.Node, material Material) error {
 					seen[section] = make(map[string]int)
 				}
 				seen[section][factName]++
+				if seen[section][factName] > 1 {
+					return fmt.Errorf("HTML section %q duplicates report fact %q", section, factName)
+				}
 				return nil
 			}
 			if attribute(node, "data-stat") != "" {
@@ -343,12 +424,15 @@ func validateHTMLClaims(mainNode *html.Node, material Material) error {
 				return nil
 			}
 		}
-		if node.Type == html.CommentNode && insideMain(node) {
+		if node.Type == html.CommentNode {
 			return fmt.Errorf("HTML report cannot contain hidden comments")
 		}
-		if node.Type == html.TextNode && insideMain(node) {
+		if node.Type == html.TextNode {
 			value := strings.TrimSpace(node.Data)
 			if value != "" {
+				if !insideMain(node) {
+					return fmt.Errorf("HTML body contains report text outside main")
+				}
 				if _, ok := allowedHTMLLabels[value]; !ok {
 					return fmt.Errorf("HTML contains unverified narrative text %q", value)
 				}
@@ -361,7 +445,7 @@ func validateHTMLClaims(mainNode *html.Node, material Material) error {
 		}
 		return nil
 	}
-	if err := visit(mainNode); err != nil {
+	if err := visit(bodyNode); err != nil {
 		return err
 	}
 	for section, prefixes := range requiredHTMLFactPrefixes {
@@ -584,55 +668,6 @@ func validateAttributes(node *html.Node) error {
 		}
 	}
 	return nil
-}
-
-func decodeCSS(value string) string {
-	var decoded strings.Builder
-	for index := 0; index < len(value); {
-		if value[index] != '\\' {
-			decoded.WriteByte(value[index])
-			index++
-			continue
-		}
-		index++
-		if index == len(value) {
-			break
-		}
-		start := index
-		for index < len(value) && index-start < 6 && isCSSHex(value[index]) {
-			index++
-		}
-		if index > start {
-			codepoint, _ := strconv.ParseUint(value[start:index], 16, 32)
-			if index < len(value) && isCSSWhitespace(value[index]) {
-				if value[index] == '\r' && index+1 < len(value) && value[index+1] == '\n' {
-					index++
-				}
-				index++
-			}
-			if codepoint == 0 || !utf8.ValidRune(rune(codepoint)) {
-				decoded.WriteRune(utf8.RuneError)
-			} else {
-				decoded.WriteRune(rune(codepoint))
-			}
-			continue
-		}
-		if value[index] == '\n' || value[index] == '\r' || value[index] == '\f' {
-			index++
-			continue
-		}
-		decoded.WriteByte(value[index])
-		index++
-	}
-	return strings.ToLower(decoded.String())
-}
-
-func isCSSHex(value byte) bool {
-	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
-}
-
-func isCSSWhitespace(value byte) bool {
-	return value == ' ' || value == '\t' || value == '\n' || value == '\r' || value == '\f'
 }
 
 func attribute(node *html.Node, name string) string {

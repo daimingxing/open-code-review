@@ -18,6 +18,10 @@ func WriteHTML(target string, automatic bool, document string, material Material
 }
 
 func writeHTMLWith(target string, automatic bool, document string, material Material, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
+	document, err := addReportHTMLStyles(document)
+	if err != nil {
+		return "", fmt.Errorf("prepare generated HTML: %w", err)
+	}
 	if err := ValidateHTMLDocument(document, material); err != nil {
 		return "", fmt.Errorf("validate generated HTML: %w", err)
 	}

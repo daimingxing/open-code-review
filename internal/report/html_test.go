@@ -55,6 +55,9 @@ func TestValidateHTMLDocumentRejectsActiveContentAndLocalPaths(t *testing.T) {
 		`<a href="javascript:alert(1)">x</a>`,
 		`<a href="#overview" ping="//example.test/ping">x</a>`,
 		`<meta http-equiv="refresh" content="0;url=https://example.test">`,
+		`<style>article{height:0;overflow:hidden}</style>`,
+		`<style>article{color:transparent}</style>`,
+		`<div style="height:0;overflow:hidden">hidden</div>`,
 		`C:\Users\alice\private\repo`,
 		`C&#58;&#92;Users&#92;alice&#92;private&#92;repo`,
 		`/var/lib/open-code-review/config.yml`,
@@ -127,9 +130,30 @@ func TestValidateHTMLDocumentRejectsInventedNonFindingFacts(t *testing.T) {
 		})
 	}
 
+	duplicateFact := `<span data-fact="repository.name">` + html.EscapeString(material.Repository.Name) + `</span>`
+	duplicated := strings.Replace(content, duplicateFact, duplicateFact+duplicateFact, 1)
+	if duplicated == content {
+		t.Fatal("fixture did not contain repository.name fact")
+	}
+	if err := ValidateHTMLDocument(duplicated, material); err == nil {
+		t.Fatal("ValidateHTMLDocument accepted a duplicated material fact")
+	}
+
 	inventedProse := strings.Replace(content, `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
 	if err := ValidateHTMLDocument(inventedProse, material); err == nil {
 		t.Fatal("ValidateHTMLDocument accepted free-form unverified report prose")
+	}
+	footerProse := strings.Replace(content, `</body>`, `<footer>Avery made 42 commits.</footer></body>`, 1)
+	if err := ValidateHTMLDocument(footerProse, material); err == nil {
+		t.Fatal("ValidateHTMLDocument accepted unverified body content outside main")
+	}
+}
+
+func TestValidateHTMLDocumentRejectsUnverifiedBodyContentOutsideMain(t *testing.T) {
+	material := validHTMLMaterial()
+	content := strings.Replace(validHTMLDocument(material), `</body>`, `<footer>Avery made 42 commits.</footer></body>`, 1)
+	if err := ValidateHTMLDocument(content, material); err == nil {
+		t.Fatal("ValidateHTMLDocument accepted unverified body content outside main")
 	}
 }
 
@@ -145,6 +169,14 @@ func validHTMLMaterial() Material {
 }
 
 func validHTMLDocument(material Material) string {
+	document, err := addReportHTMLStyles(validHTMLModelDocument(material))
+	if err != nil {
+		panic(err)
+	}
+	return document
+}
+
+func validHTMLModelDocument(material Material) string {
 	var builder strings.Builder
 	builder.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>`)
 	builder.WriteString("\u5ba1\u67e5\u62a5\u544a")

@@ -13,9 +13,9 @@
 ## 文档要求
 
 - 输出 `<!doctype html>` 开头的 UTF-8 单文件，使用 `<html lang="zh-CN">`、`<meta charset="utf-8">`、标题、正文和唯一 `<main>`。
-- 使用内联 `<style>` 和语义 HTML；不引用外部脚本、样式、字体、图片或其他资源，不设置事件处理器，不使用链接、表单、iframe、SVG 或活动内容。CSS 不得使用 `url()`、`@import`、外部地址、隐藏内容或零尺寸/透明文本；不要使用 CSS 转义编码规避限制。长路径、提交 SHA、运行标识和证据代码必须在窄屏中自动换行，不得撑宽文档。
+- 模型只输出语义 HTML 内容，不输出 `<style>`、`style` 属性或外部资源。程序加入固定内联样式，负责标题层次、间距、长标识断行和窄屏布局；不设置事件处理器，不使用链接、表单、iframe、SVG 或活动内容。
 - 页面适合桌面和窄屏阅读，采用清晰标题、间距和边框层次；信息不只靠颜色表达。
-- `<main>` 必须带 `data-review-status` 和 `data-run-id`，属性值与材料完全一致。
+- `<main>` 必须直接放在 `<body>` 内并带 `data-review-status` 和 `data-run-id`，属性值与材料完全一致。所有可见报告内容都放在 `<main>` 内，`<body>` 中不得有其他可见内容。
 - 按次序输出且各输出一次以下章节：`overview`、`quality-coverage`、`finding-details`、`changes`、`achievements`、`people`、`governance`、`limitations`、`sources`。每个章节使用 `<section data-section="名称">` 并有标题。
 - 章节没有数据时保留章节，并以中文明确说明“未提供”“不适用”或材料对应状态和原因；结构检查未提供时明确写“未提供”，不能写成“无问题”。没有治理建议时不要创建空治理建议卡片。
 - `sources` 章节必须显示材料的 `schema_version` 和 `review.run_id`。`limitations` 章节必须逐字保留每项限制的 reason。
@@ -30,4 +30,6 @@
 - 将事实放入对应章节：审查、仓库、范围和运行失败事实放入 `overview`；覆盖事实放入 `quality-coverage`；Git 统计和工作区快照放入 `changes`；成果、人员、结构检查、限制和知识来源分别放入同名章节；材料版本与运行标识放入 `sources`。
 - 每个 `data-fact` 只表示一个输入字段，不得嵌套或添加材料中不存在的路径。所有要求展示的事实都要保留，包括数组中的每一项；不要遗漏、合并或重复。
 - 问题详情按上文规定使用问题专属的短字段名 `summary_zh`、`severity_zh`、`category_zh`、`source_content`、`evidence_status`、`recommendation_status` 及对应的 `evidence_code`/`evidence_reason`、`recommendation_code`/`recommendation_reason`。
-- 除固定章节标题和既定中文字段标签外，不得在 `<main>` 内添加自由叙述、评价或解释。可以调整元素结构、排序和 CSS，但事实内容只能来自已标记的输入值。
+- 除固定章节标题和下列中文字段标签外，不得添加自由叙述、评价或解释。可以调整元素结构和排序，事实内容只能来自已标记的输入值。每个事实使用 `<div class="fact-row"><strong class="fact-label">固定标签</strong><span data-fact="JSON 路径">原值</span></div>`；代码事实可以将 span 换成 pre。
+- 固定事实标签：仓库、仓库标识、审查状态、审查范围、开始时间、结束时间、耗时、提供方、模型、基准提交、目标提交、实际范围、审查覆盖、证据、建议、摘要、严重等级、类别、文件、行号、状态、原因、知识来源、成果、人员、来源、限制、材料版本、运行标识、项目结构检查、材料事实。使用这些标签描述对应字段，不创造新标签或用标签拼接事实句子。
+- 固定统计标签按上文统计顺序为：问题数量、严重、高、中、低、选中、完成、失败、跳过、复用。统计放在 `<div class="report-statistics">` 中，每项使用 `<div class="report-statistic"><strong class="fact-label">固定标签</strong><output data-stat="名称">数字</output></div>`。
