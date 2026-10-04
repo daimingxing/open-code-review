@@ -88,13 +88,13 @@ func TestWriteMaterialNumbersAutomaticCollisionsExclusively(t *testing.T) {
 	}
 }
 
-func TestCopyMaterialExclusivelyDoesNotOverwriteAndRetainsPartialFailure(t *testing.T) {
+func TestCopyMaterialExclusivelyDoesNotOverwriteAndRemovesPartialFailure(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "report.json")
-	created, err := copyMaterialExclusively(strings.NewReader("complete"), target)
+	created, _, err := copyMaterialExclusively(strings.NewReader("complete"), target)
 	if err != nil || !created {
 		t.Fatalf("copyMaterialExclusively = (%t, %v), want created file", created, err)
 	}
-	if _, err := copyMaterialExclusively(strings.NewReader("replacement"), target); !errors.Is(err, fs.ErrExist) {
+	if _, _, err := copyMaterialExclusively(strings.NewReader("replacement"), target); !errors.Is(err, fs.ErrExist) {
 		t.Fatalf("copyMaterialExclusively on existing target = %v, want ErrExist", err)
 	}
 	data, err := os.ReadFile(target)
@@ -104,13 +104,100 @@ func TestCopyMaterialExclusivelyDoesNotOverwriteAndRetainsPartialFailure(t *test
 
 	partial := filepath.Join(t.TempDir(), "partial.json")
 	copyErr := errors.New("injected read failure")
-	created, err = copyMaterialExclusively(io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(copyErr)), partial)
+	created, _, err = copyMaterialExclusively(io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(copyErr)), partial)
 	if !created || !errors.Is(err, copyErr) {
-		t.Fatalf("failed copy = (%t, %v), want created partial file and source error", created, err)
+		t.Fatalf("failed copy = (%t, %v), want created file and source error", created, err)
 	}
-	data, readErr := os.ReadFile(partial)
-	if readErr != nil || string(data) != "partial" {
-		t.Fatalf("partial destination = %q, %v; want retained partial bytes", data, readErr)
+	if _, statErr := os.Stat(partial); !os.IsNotExist(statErr) {
+		t.Fatalf("failed copy left a partial destination: %v", statErr)
+	}
+}
+
+func TestRemoveIncompleteMaterialKeepsReplacedTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "report.json")
+	ownedFile, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedInfo, err := ownedFile.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ownedFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	backup := target + ".owned"
+	if err := os.Rename(target, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeIncompleteMaterial(target, ownedInfo); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "replacement" {
+		t.Fatalf("replacement target = %q, %v; want preserved replacement", data, err)
+	}
+}
+
+type injectedMaterialOutputFile struct {
+	file    *os.File
+	failAt  string
+	failure error
+}
+
+func (f *injectedMaterialOutputFile) Stat() (os.FileInfo, error) {
+	return f.file.Stat()
+}
+
+func (f *injectedMaterialOutputFile) Write(data []byte) (int, error) {
+	if f.failAt != "write" {
+		return f.file.Write(data)
+	}
+	n := len(data) / 2
+	written, err := f.file.Write(data[:n])
+	return written, errors.Join(err, f.failure)
+}
+
+func (f *injectedMaterialOutputFile) Sync() error {
+	if f.failAt == "sync" {
+		return f.failure
+	}
+	return f.file.Sync()
+}
+
+func (f *injectedMaterialOutputFile) Close() error {
+	err := f.file.Close()
+	if f.failAt == "close" {
+		return errors.Join(err, f.failure)
+	}
+	return err
+}
+
+func TestCopyMaterialExclusivelyRemovesFailedTargetsOnWriteSyncAndClose(t *testing.T) {
+	for _, phase := range []string{"write", "sync", "close"} {
+		t.Run(phase, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "report.json")
+			injected := errors.New("injected " + phase + " failure")
+			open := func(path string) (materialOutputFile, error) {
+				file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+				if err != nil {
+					return nil, err
+				}
+				return &injectedMaterialOutputFile{file: file, failAt: phase, failure: injected}, nil
+			}
+
+			created, _, err := copyMaterialExclusivelyWith(strings.NewReader("report material"), target, open)
+			if !created || !errors.Is(err, injected) {
+				t.Fatalf("failed %s = (%t, %v), want created target and injected error", phase, created, err)
+			}
+			if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+				t.Fatalf("failed %s left a target file: %v", phase, statErr)
+			}
+		})
 	}
 }
 

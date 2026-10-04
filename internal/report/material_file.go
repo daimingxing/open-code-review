@@ -15,6 +15,13 @@ import (
 	"strings"
 )
 
+type materialOutputFile interface {
+	io.Writer
+	Stat() (os.FileInfo, error)
+	Sync() error
+	Close() error
+}
+
 func WriteMaterial(target string, automatic bool, material Material) (string, error) {
 	if err := ValidateMaterial(material); err != nil {
 		return "", fmt.Errorf("validate report material: %w", err)
@@ -70,7 +77,7 @@ func WriteMaterial(target string, automatic bool, material Material) (string, er
 		if err != nil {
 			return "", fmt.Errorf("open temporary report file for copy: %w", err)
 		}
-		created, copyErr := copyMaterialExclusively(source, candidate)
+		created, createdInfo, copyErr := copyMaterialExclusively(source, candidate)
 		copyErr = errors.Join(copyErr, source.Close())
 		if copyErr == nil {
 			return candidate, nil
@@ -82,29 +89,62 @@ func WriteMaterial(target string, automatic bool, material Material) (string, er
 			return "", fmt.Errorf("report file %q already exists", candidate)
 		}
 		if created {
-			return "", fmt.Errorf("create report file %q exclusively; an incomplete file may remain: %w", candidate, copyErr)
+			cleanupErr := removeIncompleteMaterial(candidate, createdInfo)
+			return "", errors.Join(fmt.Errorf("create report file %q exclusively: %w", candidate, copyErr), cleanupErr)
 		}
 		return "", fmt.Errorf("create report file %q exclusively: %w", candidate, copyErr)
 	}
 	return "", fmt.Errorf("could not allocate a unique report file near %q", absTarget)
 }
 
-// 文件系统不支持硬链接时使用独占创建回退；复制期间目标可能可见，失败时保留文件以避免删除并发替换路径。 // allow-non-english: explains portability and cleanup safety
-func copyMaterialExclusively(source io.Reader, targetPath string) (bool, error) {
-	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+// 文件系统不支持硬链接时使用独占创建回退；只在路径仍指向本次创建的文件时清理失败目标。 // allow-non-english: preserve the CI marker for this Chinese ownership constraint
+func copyMaterialExclusively(source io.Reader, targetPath string) (bool, os.FileInfo, error) {
+	return copyMaterialExclusivelyWith(source, targetPath, func(path string) (materialOutputFile, error) {
+		return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	})
+}
+
+func copyMaterialExclusivelyWith(source io.Reader, targetPath string, open func(string) (materialOutputFile, error)) (bool, os.FileInfo, error) {
+	target, err := open(targetPath)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	if _, err := io.Copy(target, source); err != nil {
-		return true, errors.Join(fmt.Errorf("copy report material: %w", err), target.Close())
-	}
-	if err := target.Sync(); err != nil {
-		return true, errors.Join(fmt.Errorf("flush report material: %w", err), target.Close())
+
+	createdInfo, operationErr := target.Stat()
+	if operationErr != nil {
+		operationErr = fmt.Errorf("inspect created report material: %w", operationErr)
+	} else if _, err := io.Copy(target, source); err != nil {
+		operationErr = fmt.Errorf("copy report material: %w", err)
+	} else if err := target.Sync(); err != nil {
+		operationErr = fmt.Errorf("flush report material: %w", err)
 	}
 	if err := target.Close(); err != nil {
-		return true, fmt.Errorf("close report material: %w", err)
+		operationErr = errors.Join(operationErr, fmt.Errorf("close report material: %w", err))
 	}
-	return true, nil
+	if operationErr != nil {
+		if err := removeIncompleteMaterial(targetPath, createdInfo); err != nil {
+			operationErr = errors.Join(operationErr, fmt.Errorf("remove incomplete report material: %w", err))
+		}
+		return true, createdInfo, operationErr
+	}
+	return true, createdInfo, nil
+}
+
+func removeIncompleteMaterial(targetPath string, createdInfo os.FileInfo) error {
+	if createdInfo == nil {
+		return fmt.Errorf("cannot verify ownership of report file %q", targetPath)
+	}
+	currentInfo, err := os.Stat(targetPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(createdInfo, currentInfo) {
+		return nil
+	}
+	return os.Remove(targetPath)
 }
 
 func PathsConflict(nativePath, materialPath string) (bool, error) {

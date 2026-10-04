@@ -14,7 +14,8 @@ PowerShell 7，在仓库根目录执行：
 $ErrorActionPreference = 'Stop'
 $env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;' + $env:PATH
 go version
-go test ./cmd/opencodereview -run 'TestReviewE2E_Report(SaveFailurePreservesNativeOutput|PartialAndFailedOutcomesAcrossModes|SkippedIsNotAnEmptySuccessfulReview|ResumePreservesIdentityAndScope|DoesNotAddWorkspaceResume|KnowledgeFailurePreservesCodeFinding|MarksRestrictedMCPReadPartial)$' -count=1
+go test ./internal/report -run 'Test(WriteMaterial|CopyMaterialExclusively|RemoveIncompleteMaterial)' -count=1
+go test ./cmd/opencodereview -run 'TestReviewE2E_Report(SaveFailurePreservesNativeOutput|PartialAndFailedOutcomesAcrossModes|TimeoutPreservesPartialOutcomeAcrossModes|TokenBudgetFailureIsNotSuccessAcrossModes|SkippedIsNotAnEmptySuccessfulReview|ResumePreservesIdentityAndScope|DoesNotAddWorkspaceResume|KnowledgeFailurePreservesCodeFinding|MarksRestrictedMCPReadPartial)$' -count=1
 ```
 
 普通完整测试与仓库检查：
@@ -32,6 +33,8 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 - 六种“模式 × 部分/完全失败”组合均由 CLI 检查原生 manifest 和报告材料；部分结果保留成功覆盖，完全失败返回非零并带失败状态，不会把空问题数组显示成审查通过。
 - 工作区无选中项时 native/report 都是 `skipped`。知识 MCP `IsError` 不导致代码审查失败；已有代码问题保留，知识来源记录 `failed`，`application_status` 保持 `not_observed`。
 - 原生与材料的 run id、状态、覆盖集合一致；材料安全保存失败时原生 JSON 仍完整且显式目标原内容不变。
+- 三种模式的单文件模型超时保留其余完成项、finding 和 `partial` 状态；`--max-tokens-budget 1` 使每个选中项都记录 `budget` 失败、原生及材料状态为 `failed`、没有 finding 且 CLI 非零退出。
+- 文件系统回退复制遇到读取、写入、`Sync` 或 `Close` 失败时不留下本次新建的残缺目标；显式存在目标及在清理期间被替换的路径内容保持不变。
 - `--resume` 只覆盖原生支持的 commit/range，父子运行 ID、完整 SHA、精确范围、来源工件摘要及材料字段一致；仓库身份缺失时材料如实标 `not_collected`，不补造值。workspace resume 报错且不生成材料。
 - 聚焦测试、`go test ./... -count=1` 和 `make check` 的退出码为 0；任何未运行项单独说明，不能由聚焦测试推断完整通过。
 
@@ -43,8 +46,13 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 - `go test ./cmd/opencodereview -run '^TestReviewE2E_ReportResumePreservesIdentityAndScope$' -count=1` 退出码 0，commit 和 range 恢复均通过。
 - `go test ./cmd/opencodereview -run '^TestReviewE2E_ReportKnowledgeFailurePreservesCodeFinding$' -count=1` 退出码 0。真实本地 stdio MCP 对不存在文件返回 `IsError`；native finding 未被清除，材料报告知识读取失败且未证明知识应用。
 - 最终聚焦命令 `go test ./cmd/opencodereview -run 'TestReviewE2E_Report(SaveFailurePreservesNativeOutput|PartialAndFailedOutcomesAcrossModes|SkippedIsNotAnEmptySuccessfulReview|ResumePreservesIdentityAndScope|DoesNotAddWorkspaceResume|KnowledgeFailurePreservesCodeFinding|MarksRestrictedMCPReadPartial)$' -count=1` 于 2026-10-04 退出码 0，包用时 52.739 秒。
-- `go test ./... -count=1`、`make check` 和独立审查尚未运行；本记录不将其标为通过，由主线程在最终集成版本复测。
+- 新增 timeout/budget 命令 `go test ./cmd/opencodereview -run 'TestReviewE2E_Report(TimeoutPreservesPartialOutcomeAcrossModes|TokenBudgetFailureIsNotSuccessAcrossModes)$' -count=1` 于 2026-10-04 退出码 0，包用时 23.385 秒；timeout 和预算耗尽在 commit/range/workspace 三模式都通过，原生结果与材料状态、覆盖一致。
+- 材料故障注入命令 `go test ./internal/report -run 'Test(WriteMaterial|CopyMaterialExclusively|RemoveIncompleteMaterial)' -count=1` 于 2026-10-04 退出码 0，包用时 1.846 秒；覆盖复制读取错误、目标写错误、`Sync` 错误、`Close` 错误、显式目标不覆盖与清理期间替换目标不删除。
+- 最终聚焦命令 `go test ./cmd/opencodereview -run 'TestReviewE2E_Report(SaveFailurePreservesNativeOutput|PartialAndFailedOutcomesAcrossModes|TimeoutPreservesPartialOutcomeAcrossModes|TokenBudgetFailureIsNotSuccessAcrossModes|SkippedIsNotAnEmptySuccessfulReview|ResumePreservesIdentityAndScope|DoesNotAddWorkspaceResume|KnowledgeFailurePreservesCodeFinding|MarksRestrictedMCPReadPartial)$' -count=1` 于 2026-10-04 退出码 0，包用时 74.506 秒。
+- `go test ./... -count=1` 于 2026-10-04 退出码 0，26 个包通过；`cmd/opencodereview` 用时 254.060 秒，`internal/report` 用时 2.868 秒。
+- `make check` 于 2026-10-04 退出码 0；包含 `go mod tidy` 的仓库检查目标通过，执行后 `git diff --check` 无输出。
+- 新增提交的独立复审及目标分支集成尚未完成；本记录只报告当前实施分支证据，主线程仍需在最终集成版本验收。
 
-本次矩阵通过模型服务永久拒绝请求来验证任务级失败及完全失败，未单独驱动 CLI 的模型超时或 token budget 截止路径；已有共享 native budget 输出单元测试不等价于三模式报告材料端到端验收，后续整体验收应明确保留此差异。
+本记录的 CLI E2E 使用可控本地模型故障，不替代真实模型效果验收。模型超时由本地 HTTP 服务对 `b.go` 主审查请求延迟 1.5 秒并设置 `OCR_LLM_TIMEOUT=1` 驱动；预算耗尽通过 CLI `--max-tokens-budget 1` 驱动，未依赖共享 native 单元测试推断材料行为。
 
 人工重放 commit/range/workspace 的真实服务路径仍需主机上已授权的 OCR 模型与知识服务配置；按 [工单 01 复测记录](external-knowledge-01.md) 准备并隔离服务。模型与知识凭据不应写入命令文件或报告材料。

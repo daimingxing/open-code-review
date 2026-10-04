@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
@@ -129,6 +130,82 @@ func TestReviewE2E_ReportPartialAndFailedOutcomesAcrossModes(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestReviewE2E_ReportTimeoutPreservesPartialOutcomeAcrossModes(t *testing.T) {
+	for _, mode := range reportReviewModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repoDir := reportReviewRepoForMode(t, mode)
+			srv := newFakeLLM()
+			srv.includeFinding = true
+			srv.timeoutFiles["b.go"] = true
+			srv.timeoutDelay = 1500 * time.Millisecond
+			startFakeLLM(t, srv)
+			t.Setenv("OCR_LLM_TIMEOUT", "1")
+
+			nativePath := filepath.Join(t.TempDir(), "native.json")
+			materialPath := filepath.Join(t.TempDir(), "review.report.json")
+			args := reportReviewArgs(repoDir, nativePath, materialPath, mode)
+			_, stderr, runErr := runReportReview(t, args...)
+			native := readNativeReview(t, nativePath)
+			material := readReportMaterial(t, materialPath)
+
+			if runErr != nil || native.Status != string(session.StatePartial) || material.Review.Status != session.StatePartial {
+				t.Fatalf("timeout partial run error/status = %v/%q/%q; stderr: %s", runErr, native.Status, material.Review.Status, stderr)
+			}
+			if !reflect.DeepEqual(native.Manifest.Coverage, material.Coverage) || native.Manifest.RunID != material.Review.RunID {
+				t.Fatalf("native/report identity or coverage diverged: native=%+v report=%+v", native.Manifest, material)
+			}
+			if len(native.Manifest.Coverage.Completed) != len(markers)-1 || len(native.Manifest.Coverage.Failed) != 1 || len(native.Comments) == 0 || len(material.Findings) != len(native.Comments) {
+				t.Fatalf("timeout did not preserve completed work and findings: coverage=%+v comments=%d findings=%d", native.Manifest.Coverage, len(native.Comments), len(material.Findings))
+			}
+			failed := native.Manifest.Coverage.Failed[0]
+			if failed.Path != "b.go" || failed.Classification != session.FailureTimeout || failed.Reason == "" {
+				t.Fatalf("timeout failure lacks expected classification and diagnostic: %+v", failed)
+			}
+			foundFailureLimitation := false
+			for _, limitation := range material.Limitations {
+				if limitation.Source == "coverage.failed."+failed.ItemID && limitation.Status == report.StatusFailed && limitation.Reason != "" {
+					foundFailureLimitation = true
+				}
+			}
+			if !foundFailureLimitation {
+				t.Fatalf("report did not explain timed-out review item %q: %+v", failed.ItemID, material.Limitations)
+			}
+		})
+	}
+}
+
+func TestReviewE2E_ReportTokenBudgetFailureIsNotSuccessAcrossModes(t *testing.T) {
+	for _, mode := range reportReviewModes {
+		t.Run(mode.name, func(t *testing.T) {
+			repoDir := reportReviewRepoForMode(t, mode)
+			startFakeLLM(t, newFakeLLM())
+
+			nativePath := filepath.Join(t.TempDir(), "native.json")
+			materialPath := filepath.Join(t.TempDir(), "review.report.json")
+			args := reportReviewArgs(repoDir, nativePath, materialPath, mode)
+			args = append(args, "--max-tokens-budget", "1")
+			_, stderr, runErr := runReportReview(t, args...)
+			native := readNativeReview(t, nativePath)
+			material := readReportMaterial(t, materialPath)
+
+			if runErr == nil || !strings.Contains(runErr.Error(), "review failed") {
+				t.Fatalf("all-budget-failed run must return a diagnostic error, got %v; stderr: %s", runErr, stderr)
+			}
+			if native.Status != string(session.StateFailed) || material.Review.Status != session.StateFailed || len(native.Comments) != 0 || len(material.Findings) != 0 {
+				t.Fatalf("budget exhaustion looks successful or retained findings: native=%q comments=%d report=%q findings=%d", native.Status, len(native.Comments), material.Review.Status, len(material.Findings))
+			}
+			if !reflect.DeepEqual(native.Manifest.Coverage, material.Coverage) || len(native.Manifest.Coverage.Selected) == 0 || len(native.Manifest.Coverage.Failed) != len(native.Manifest.Coverage.Selected) {
+				t.Fatalf("budget failure did not preserve complete failure coverage: native=%+v report=%+v", native.Manifest.Coverage, material.Coverage)
+			}
+			for _, failed := range native.Manifest.Coverage.Failed {
+				if failed.Classification != session.FailureBudget || failed.Reason == "" {
+					t.Fatalf("budget failure lacks expected classification and diagnostic: %+v", failed)
+				}
+			}
+		})
 	}
 }
 

@@ -45,6 +45,9 @@ type fakeLLM struct {
 	rateLimitOnce map[string]bool
 	// hardFail lists files whose every attempt returns 402.
 	hardFail map[string]bool
+	// timeoutFiles delays selected main review requests beyond the client deadline.
+	timeoutFiles map[string]bool
+	timeoutDelay time.Duration
 	// includeFinding 控制每个主审查任务先返回一条原生 code_comment。 // allow-non-english: 测试夹具字段用途说明
 	includeFinding   bool
 	findingPath      string
@@ -65,6 +68,7 @@ func newFakeLLM() *fakeLLM {
 		attemptsByFile: map[string]int{},
 		rateLimitOnce:  map[string]bool{},
 		hardFail:       map[string]bool{},
+		timeoutFiles:   map[string]bool{},
 		findingSent:    map[string]bool{},
 	}
 }
@@ -266,6 +270,14 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.mu.Lock()
+	timeout := hasTools && f.timeoutFiles[file]
+	timeoutDelay := f.timeoutDelay
+	f.mu.Unlock()
+	if timeout && timeoutDelay > 0 {
+		time.Sleep(timeoutDelay)
+	}
+
+	f.mu.Lock()
 	f.attemptsByFile[file]++
 	n := f.attemptsByFile[file]
 	rateLimit := f.rateLimitOnce[file] && n == 1
@@ -294,7 +306,7 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		path := f.findingPath
 		if path == "" {
-			path = markers[file]
+			path = file
 		}
 		includeFinding := f.includeFinding && path != "" && !f.findingSent[file]
 		if includeFinding {
