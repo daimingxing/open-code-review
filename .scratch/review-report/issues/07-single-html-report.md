@@ -28,4 +28,5 @@ Blocked by: [06：交付不完整审查材料与失败恢复行为](06-partial-r
 - 真实 DeepSeek 首次调用未能生成可用 HTML：该格式失败已记录在复测文档，后续由 09 有界修复能力处理；不得把这次失败算作工单 07 的模型通过证据。
 - 最后提交 `0bf782f96877a6b542b9e8e975d9bf858bf22074` 强制带 `data-finding-id` 的节点必须为 `<article>`；增加非 article 拒绝和 `WriteHTML` 不落盘测试。该改动不影响 HTML 渲染，故复用上一代码提交产物的 Edge 检查结果。最终两包聚焦测试通过；独立 reviewer `review_report_07` 对该提交结论为无 blocker、无残留 finding。reviewer 环境未找到 Go，复测由实施环境完成。
 - 全 `cmd/opencodereview` 测试在既有 `TestReviewE2E_ReportTokenBudgetFailureIsNotSuccessAcrossModes` 的 MCP 读取路径超时；工单 07 聚焦测试已单独通过，故障与证据记于复测记录。
+- 主线程于 2026-10-04 将工单分支以 `--no-ff` Merge 集成到 `feature-review-report`，集成提交 `27d7b41de049fd46854252dd35208884c2be8d8e`。目标分支复跑 `go test ./internal/report -count=1 -timeout=75s`（2.174s）、`go test ./cmd/opencodereview -run '^TestReportCommand' -count=1 -timeout=75s`（4.298s）及 `git diff --check` 均通过。真实 DeepSeek doctype 格式失败仍未通过，待工单 09 有界修复后复验。
 
