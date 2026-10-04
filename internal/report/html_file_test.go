@@ -51,9 +51,9 @@ func TestWriteHTMLAddsAccessibleFiltersFoldableFindingsAndPrintStyles(t *testing
 	}
 	document := string(data)
 	for _, expected := range []string{
-		`<fieldset`, `<legend>审查单元或仓库</legend>`, `name="report-filter-unit"`,
-		`<legend>严重等级</legend>`, `name="report-filter-severity"`,
-		`<legend>类别</legend>`, `name="report-filter-category"`,
+		`<fieldset`, `<legend>审查单元或仓库</legend>`, `name="report-filter-unit"`, // allow-non-english: 规格要求的中文报告标签
+		`<legend>严重等级</legend>`, `name="report-filter-severity"`, // allow-non-english: 规格要求的中文报告标签
+		`<legend>类别</legend>`, `name="report-filter-category"`, // allow-non-english: 规格要求的中文报告标签
 		`<details class="finding-details" open=""><summary>`,
 		`@media print`, `:focus-visible`, `data-review-unit-index="0"`,
 		`<label`,

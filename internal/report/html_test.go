@@ -35,7 +35,7 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 			return strings.Replace(value, `data-section="governance"`, `data-section="unknown"`, 1)
 		}},
 		{"incorrect finding label", func(value string) string {
-			return strings.Replace(value, `<strong class="fact-label">严重等级</strong><span data-fact="severity_zh">`, `<strong class="fact-label">原因</strong><span data-fact="severity_zh">`, 1)
+			return strings.Replace(value, `<strong class="fact-label">严重等级</strong><span data-fact="severity_zh">`, `<strong class="fact-label">原因</strong><span data-fact="severity_zh">`, 1) // allow-non-english: 规格要求的中文事实标签
 		}},
 		{"finding is not an article", func(value string) string {
 			value = strings.Replace(value, `<article data-finding-id=`, `<div data-finding-id=`, 1)
