@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -21,6 +22,12 @@ import (
 )
 
 const bareReportValue = "\x00"
+
+type reportMaterialOptions struct {
+	Snapshot       *workspaceSnapshotCapture
+	ToolCalls      map[string]int64
+	ProjectSummary string
+}
 
 func reviewArgsValidator(opts *reviewOptions) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
@@ -107,7 +114,7 @@ func buildReportMaterial(
 	provider, modelName string,
 	toolFailures []llmloop.ToolFailureDetail,
 	gitRunner *gitcmd.Runner,
-	snapshotCapture ...workspaceSnapshotCapture,
+	options ...reportMaterialOptions,
 ) (report.Material, error) {
 	if manifest == nil {
 		return report.Material{}, fmt.Errorf("native run manifest is unavailable")
@@ -144,16 +151,25 @@ func buildReportMaterial(
 		return report.Material{}, err
 	}
 	workspaceSection := notCollectedSection("本次审查尚未采集工作区状态统计") // allow-non-english: report JSON requires Chinese user-facing facts
-	if manifest.Input.Mode == session.InputModeWorkspace && len(snapshotCapture) > 0 {
-		workspaceSection = workspaceSnapshotSection(snapshotCapture[0], manifest)
+	if manifest.Input.Mode == session.InputModeWorkspace && len(options) > 0 && options[0].Snapshot != nil {
+		workspaceSection = workspaceSnapshotSection(*options[0].Snapshot, manifest)
 	}
+	var toolCalls map[string]int64
+	if len(options) > 0 {
+		toolCalls = options[0].ToolCalls
+	}
+	projectSummary := ""
+	if len(options) > 0 {
+		projectSummary = options[0].ProjectSummary
+	}
+	achievements, people, knowledge := enrichReportSections(context.Background(), gitRunner, repoDir, scope, manifest, toolCalls, toolFailures, projectSummary)
 	sections := report.MaterialSections{
 		GitStatistics:     branchGitStatisticsSection(gitRunner, repoDir, scope),
 		WorkspaceSnapshot: workspaceSection,
-		Achievements:      notCollectedSection("本次审查尚未采集模块或成果依据"),            // allow-non-english: report JSON requires Chinese user-facing facts
-		People:            notCollectedSection("本次审查尚未采集人员贡献依据"),             // allow-non-english: report JSON requires Chinese user-facing facts
-		KnowledgeSources:  notCollectedSection("本次审查 manifest 未记录实际读取的知识来源"), // allow-non-english: report JSON requires Chinese user-facing facts
-		StructuralChecks:  notCollectedSection("本次审查尚未采集结构检查结果"),             // allow-non-english: report JSON requires Chinese user-facing facts
+		Achievements:      achievements,
+		People:            people,
+		KnowledgeSources:  knowledge,
+		StructuralChecks:  notCollectedSection("本次审查尚未采集结构检查结果"), // allow-non-english: report JSON requires Chinese user-facing facts
 	}
 	if manifest.Input.Mode != session.InputModeWorkspace {
 		sections.WorkspaceSnapshot = report.Section{Status: report.StatusNotApplicable, Reason: "本次输入不是工作区审查"} // allow-non-english: report JSON requires Chinese user-facing facts

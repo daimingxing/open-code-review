@@ -48,4 +48,6 @@
 
 工单 03 的分支范围、Git 统计和原生兼容复测见[分支报告材料复测记录](review-report-branch-material-03.md)。
 
+工单 05 的成果、人员和知识来源复测见[成果、人员和知识来源复测记录](review-report-enrichment-05.md)。
+
 工单 04 的工作区快照、混合变更和原生兼容复测见[工作区报告材料复测记录](review-report-workspace-material-04.md)。
