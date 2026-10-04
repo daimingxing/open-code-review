@@ -39,6 +39,77 @@ func TestWriteHTMLRefusesOverwriteAndNumbersAutomaticNames(t *testing.T) {
 	}
 }
 
+func TestWriteHTMLAddsAccessibleFiltersFoldableFindingsAndPrintStyles(t *testing.T) {
+	material := validHTMLMaterial()
+	target := filepath.Join(t.TempDir(), "report.html")
+	if _, err := WriteHTML(target, false, validHTMLModelDocument(material), material); err != nil {
+		t.Fatalf("WriteHTML failed: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(data)
+	for _, expected := range []string{
+		`<fieldset`, `<legend>审查单元或仓库</legend>`, `name="report-filter-unit"`,
+		`<legend>严重等级</legend>`, `name="report-filter-severity"`,
+		`<legend>类别</legend>`, `name="report-filter-category"`,
+		`<details class="finding-details" open=""><summary>`,
+		`@media print`, `:focus-visible`, `data-review-unit-index="0"`,
+		`<label`,
+	} {
+		if !strings.Contains(document, expected) {
+			t.Errorf("saved report omitted accessible experience element %q", expected)
+		}
+	}
+	if got := strings.Count(document, `<article `); got != len(material.Findings) {
+		t.Fatalf("saved report has %d findings, want %d", got, len(material.Findings))
+	}
+	if strings.Contains(document, "<script") || strings.Contains(document, "<form") || strings.Contains(document, "https://") {
+		t.Fatal("generated controls added active or external content")
+	}
+	if err := ValidateHTMLDocument(document, material); err != nil {
+		t.Fatalf("saved interactive report failed validation: %v", err)
+	}
+}
+
+func TestWriteMultiHTMLFiltersByReviewUnitAndPreservesFindingOwnership(t *testing.T) {
+	first := validHTMLMaterial()
+	first.Review.RunID = "experience-unit-one"
+	first.Repository.Name = "frontend-repository"
+	second := validHTMLMaterial()
+	second.Review.RunID = "experience-unit-two"
+	second.Repository.Name = "backend-repository"
+	input, err := NewMultiReportInput([]Material{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "multi.html")
+	document := multiHTMLWithoutStyles(t, validMultiHTMLDocument(input))
+	if _, err := WriteMultiHTML(target, false, document, input); err != nil {
+		t.Fatalf("WriteMultiHTML failed: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Count(content, `name="report-filter-unit"`) != len(input.ReviewUnits)+1 {
+		t.Fatalf("review-unit filter has the wrong option count: %d", strings.Count(content, `name="report-filter-unit"`))
+	}
+	for _, expected := range []string{"frontend-repository", "backend-repository", `data-review-unit-index="0"`, `data-review-unit-index="1"`, `@media print`} {
+		if !strings.Contains(content, expected) {
+			t.Errorf("multi-report omitted filter fact or interaction %q", expected)
+		}
+	}
+	if strings.Count(content, `<article `) != 2*len(first.Findings) {
+		t.Fatalf("multi-report finding count changed: %d", strings.Count(content, `<article `))
+	}
+	if err := ValidateMultiHTMLDocument(content, input); err != nil {
+		t.Fatalf("saved multi-report failed validation: %v", err)
+	}
+}
+
 func TestWriteHTMLHardLinkFailureDoesNotPublish(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "report.html")
 	document := validHTMLModelDocument(validHTMLMaterial())
