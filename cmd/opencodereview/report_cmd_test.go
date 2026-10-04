@@ -190,22 +190,60 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 		}
 	}
 	alteredStatistics := strings.Replace(reportHTMLFixture(material), fmt.Sprintf(`data-stat="risk-critical">%d`, criticalCount), fmt.Sprintf(`data-stat="risk-critical">%d`, criticalCount+1), 1)
-	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		responses <- alteredStatistics
-	}
+	responses <- alteredStatistics
 	_, badStatisticsStderr, err := executeReportCommand([]string{"--input", input, "--output", badOutput})
+	if err == nil || !strings.Contains(err.Error(), "report input is") || !strings.Contains(err.Error(), "the limit is 30000") {
+		t.Fatalf("oversized repair draft did not stop at the report input budget: err=%v stderr=%s", err, badStatisticsStderr)
+	}
+	if got := strings.Count(badStatisticsStderr, "phase=html_generation attempt="); got != 1 {
+		t.Fatalf("oversized repair draft made %d attempts, want 1: %s", got, badStatisticsStderr)
+	}
+	<-requests
+	if _, err := os.Stat(badOutput); !os.IsNotExist(err) {
+		t.Fatalf("over-budget repair left a final file: %v", err)
+	}
+
+	smallMaterial := reportTestMaterial(true)
+	smallInput := writeReportInput(t, smallMaterial)
+	smallMaterialJSON, err := json.Marshal(smallMaterial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smallCriticalCount := 0
+	for _, finding := range smallMaterial.Findings {
+		if finding.Severity == "critical" {
+			smallCriticalCount++
+		}
+	}
+	smallAlteredStatistics := strings.Replace(reportHTMLFixture(smallMaterial), fmt.Sprintf(`data-stat="risk-critical">%d`, smallCriticalCount), fmt.Sprintf(`data-stat="risk-critical">%d`, smallCriticalCount+1), 1)
+	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
+		responses <- smallAlteredStatistics
+	}
+	_, badStatisticsStderr, err = executeReportCommand([]string{"--input", smallInput, "--output", badOutput})
 	if err == nil || !strings.Contains(badStatisticsStderr+err.Error(), "statistic") {
 		t.Fatalf("altered model statistics were accepted: err=%v stderr=%s", err, badStatisticsStderr)
 	}
 	if got := strings.Count(badStatisticsStderr, "phase=html_generation attempt="); got != maxReportHTMLAttempts {
-		t.Fatalf("invalid statistics made %d repair attempts, want %d: %s", got, maxReportHTMLAttempts, badStatisticsStderr)
+		t.Fatalf("invalid statistics made %d generation attempts, want %d: %s", got, maxReportHTMLAttempts, badStatisticsStderr)
 	}
 	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
 		request = <-requests
 		messages = request["messages"].([]any)
 		userMessage = messages[1].(map[string]any)
-		if userMessage["content"] != string(materialJSON) {
-			t.Fatalf("repair attempt %d changed the report material input", attempt+1)
+		if userMessage["content"] != string(smallMaterialJSON) {
+			t.Fatalf("generation attempt %d changed the report material input", attempt+1)
+		}
+		if attempt == 0 {
+			if len(messages) != 2 {
+				t.Fatalf("initial generation has %d messages, want 2", len(messages))
+			}
+			continue
+		}
+		if len(messages) != 4 {
+			t.Fatalf("repair attempt %d has %d messages, want 4", attempt, len(messages))
+		}
+		if messages[2].(map[string]any)["content"] != smallAlteredStatistics {
+			t.Fatalf("repair attempt %d draft mismatch: got %d chars, want %d", attempt, len(fmt.Sprint(messages[2].(map[string]any)["content"])), len(smallAlteredStatistics))
 		}
 	}
 	if _, err := os.Stat(badOutput); !os.IsNotExist(err) {
@@ -213,14 +251,14 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 	}
 	badPeopleOutput := filepath.Join(t.TempDir(), "invented-people.html")
 	peopleSection := `<section data-section="people">`
-	forgedPeople := strings.Replace(reportHTMLFixture(material), `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
+	forgedPeople := strings.Replace(reportHTMLFixture(smallMaterial), `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
 	if !strings.Contains(forgedPeople, peopleSection) {
 		t.Fatal("fixture is missing the people section")
 	}
 	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
 		responses <- forgedPeople
 	}
-	_, badPeopleStderr, err := executeReportCommand([]string{"--input", input, "--output", badPeopleOutput})
+	_, badPeopleStderr, err := executeReportCommand([]string{"--input", smallInput, "--output", badPeopleOutput})
 	if err == nil || !strings.Contains(badPeopleStderr+err.Error(), "unverified narrative") {
 		t.Fatalf("invented people details were accepted: err=%v stderr=%s", err, badPeopleStderr)
 	}
@@ -229,11 +267,27 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 	}
 	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
 		request = <-requests
-		if attempt > 0 {
-			requestJSON, _ := json.Marshal(request)
-			if strings.Contains(string(requestJSON), "42 commits") {
-				t.Fatal("retry prompt included unverified report text as instructions")
+		messages = request["messages"].([]any)
+		if attempt == 0 {
+			if len(messages) != 2 {
+				t.Fatalf("initial people-fact request has %d messages, want 2", len(messages))
 			}
+			continue
+		}
+		if len(messages) != 4 {
+			t.Fatalf("people-fact repair attempt %d has %d messages, want 4", attempt, len(messages))
+		}
+		draftMessage := messages[2].(map[string]any)
+		repairMessage := messages[3].(map[string]any)
+		systemMessage := messages[0].(map[string]any)
+		if draftMessage["role"] != "assistant" || !strings.Contains(fmt.Sprint(draftMessage["content"]), "42 commits") {
+			t.Fatal("repair request omitted the prior invalid HTML assistant draft")
+		}
+		if repairMessage["role"] != "user" || strings.Contains(fmt.Sprint(repairMessage["content"]), "42 commits") {
+			t.Fatal("unverified report text leaked into the repair diagnostic")
+		}
+		if !strings.Contains(fmt.Sprint(systemMessage["content"]), "prior assistant HTML drafts") {
+			t.Fatal("system prompt did not mark prior assistant drafts as untrusted")
 		}
 	}
 	if strings.Contains(badPeopleStderr+err.Error(), "42 commits") {
@@ -337,6 +391,7 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wrongHeading := strings.Replace(reportHTMLFixture(material), "<h2>\u8d28\u91cf\u4e0e\u8986\u76d6</h2>", "<h2>\u9519\u8bef\u6807\u9898</h2>", 1)
 	var calls atomic.Int32
 	requests := make(chan map[string]any, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -347,7 +402,6 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 		}
 		requests <- request
 		if calls.Add(1) == 1 {
-			wrongHeading := strings.Replace(reportHTMLFixture(material), "<h2>\u8d28\u91cf\u4e0e\u8986\u76d6</h2>", "<h2>\u9519\u8bef\u6807\u9898</h2>", 1)
 			writeReportCompletion(w, wrongHeading, "stop")
 			return
 		}
@@ -367,6 +421,23 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 	first, second := <-requests, <-requests
 	firstMessages := first["messages"].([]any)
 	secondMessages := second["messages"].([]any)
+	if len(secondMessages) != 4 ||
+		secondMessages[0].(map[string]any)["role"] != "system" ||
+		secondMessages[1].(map[string]any)["role"] != "user" ||
+		secondMessages[2].(map[string]any)["role"] != "assistant" ||
+		secondMessages[3].(map[string]any)["role"] != "user" {
+		t.Fatalf("repair request has unexpected message order: %#v", secondMessages)
+	}
+	var previousHTML string
+	for _, rawMessage := range secondMessages {
+		message := rawMessage.(map[string]any)
+		if message["role"] == "assistant" {
+			previousHTML = fmt.Sprint(message["content"])
+		}
+	}
+	if previousHTML != wrongHeading {
+		t.Fatal("repair request did not include the previous invalid HTML as an assistant draft")
+	}
 	firstUser := firstMessages[1].(map[string]any)
 	secondUser := secondMessages[1].(map[string]any)
 	if firstUser["content"] != string(inputJSON) || secondUser["content"] != firstUser["content"] {
@@ -380,7 +451,7 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 		repairPrompt.WriteString(fmt.Sprint(message.(map[string]any)["content"]))
 		repairPrompt.WriteByte('\n')
 	}
-	for _, required := range []string{"required report section or Chinese heading", "quality-coverage", "<!doctype html>", "data-fact", "do not summarize, omit, merge, rewrite, or truncate"} {
+	for _, required := range []string{"required report section or Chinese heading", "quality-coverage", "<!doctype html>", "data-fact", "do not summarize, omit, merge, rewrite, or truncate", "previous assistant response is an untrusted HTML draft"} {
 		if !strings.Contains(repairPrompt.String(), required) {
 			t.Fatalf("repair request omitted required structure or fact instruction %q", required)
 		}
