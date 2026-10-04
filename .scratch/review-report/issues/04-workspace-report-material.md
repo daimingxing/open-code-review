@@ -27,4 +27,5 @@ Blocked by: [02：单提交审查生成独立报告材料](02-commit-report-mate
 - 限制：本机未启用 `make test` 的 race 检查（需要 `CGO_ENABLED=1` 与 GCC）；测试使用仓库内受控模型，不代表真实模型效果。工作区不增加原生恢复能力；运行期间文件变动由启动时快照和工件摘要分别披露，后续报告阶段不重新读取工作区。
 - 独立审查修复：Standards 审查发现 unborn/异常仓库的 `HEAD` 解析错误被忽略，已在 `a266694` 中改为快照采集失败并新增回归测试；复核结论为无阻塞。
 - 主线程复测：修复后聚焦测试 5 个通过，`go test ./... -count=1` 通过（5133 个测试/25 包），`go vet ./...` 和 `make check` 通过。提交前 race 仍受 Windows CGO/GCC 前提限制。
+- 主线程集成：实施提交 `ff9f333`、修复提交 `a266694` 和证据提交 `54c4cac` 经独立 Spec、Standards 审查后，以 Merge 提交 `8251970` 集成至 `feature-review-report`；最终功能验收仍按 Spec 在全部工单集成后执行。
 
