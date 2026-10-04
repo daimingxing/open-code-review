@@ -12,7 +12,7 @@
 $ErrorActionPreference = 'Stop'
 Set-Location 'D:\WorkPlace\open-code-review-worktrees\review-report-05-enrich'
 $env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;' + $env:PATH
-go test ./cmd/opencodereview -run 'Test(ReviewE2E_CommitReportContainsEvidenceBackedEnrichment|KnowledgeSourcesSectionDistinguishesObservedPartialAndFailure|EnrichReportSectionsDoesNotInferNonCommitResults)' -count=1
+go test ./cmd/opencodereview -run 'Test(ReviewE2E_CommitReportContainsEvidenceBackedEnrichment|ReviewE2E_CommitWithoutReportKeepsNativeBehavior|KnowledgeSourcesSectionDistinguishesObservedPartialAndFailure|EnrichReportSectionsDoesNotInferNonCommitResults|CollectCommitMaterialUsesFirstParentForMergeCommit)' -count=1
 go test ./... -count=1
 go vet ./...
 ```
@@ -34,4 +34,4 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 
 ## 验证记录
 
-2026-10-04：聚焦测试 3 个通过；全量普通测试 `go test ./... -count=1` 通过（5136 个测试/25 个包），`go vet` 和 `make check` 通过（665 个源文件英文检查）。`ProjectSummary` 为空时材料明确记录模型成果归纳未采集；知识正文版本和正确应用没有可验证事实时明确标记 `not_observed`。race 测试仍需 CGO/GCC；真实知识正文读取与应用仍以工单 01 的真实模型证据为准。
+2026-10-04：Spec 复审指出工具总调用数含失败尝试、merge commit `diff-tree` 不提供 first-parent 文件以及材料阶段耗时/用量未明确；实现均已修复并新增回归测试。修复后聚焦测试 5 个通过，全量普通测试 `go test ./... -count=1` 通过（5137 个测试/25 个包），`go vet` 和 `make check` 通过（665 个源文件英文检查）。`ProjectSummary` 为空时材料明确记录模型成果归纳未采集；知识正文版本和正确应用没有可验证事实时明确标记 `not_observed`。race 测试仍需 CGO/GCC；真实知识正文读取与应用仍以工单 01 的真实模型证据为准。

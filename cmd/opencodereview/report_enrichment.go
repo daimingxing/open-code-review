@@ -52,6 +52,9 @@ type commitAchievements struct {
 	ModelSummaryUsageStatus string             `json:"model_summary_usage_status"`
 	ModelSummaryElapsedMS   int64              `json:"model_summary_elapsed_ms,omitempty"`
 	ModelSummaryReasonZH    string             `json:"model_summary_reason_zh"`
+	CollectionElapsedMS     int64              `json:"collection_elapsed_ms"`
+	CollectionUsageStatus   string             `json:"collection_usage_status"`
+	CollectionUsageReasonZH string             `json:"collection_usage_reason_zh"`
 }
 
 type moduleChange struct {
@@ -95,12 +98,13 @@ func enrichReportSections(
 	achievements := notCollectedSection("本次审查尚未采集有依据的提交成果") // allow-non-english: report JSON requires Chinese missing-value reason
 	people := notCollectedSection("本次审查尚未采集 Git 作者与提交者资料")  // allow-non-english: report JSON requires Chinese missing-value reason
 	if scope.Mode == session.InputModeCommit && manifest != nil && scope.ResolvedHead.Status == report.StatusProvided {
-		material, err := collectCommitMaterial(ctx, runner, repoDir, scope.ResolvedHead.SHA)
+		started := time.Now()
+		material, err := collectCommitMaterial(ctx, runner, repoDir, scope.ResolvedBase.SHA, scope.ResolvedHead.SHA)
 		if err != nil {
 			failed := report.Section{Status: report.StatusFailed, Reason: "Git 提交事实采集失败，未推断成果或人员"} // allow-non-english: report JSON requires Chinese failure reason
 			achievements, people = failed, failed
 		} else {
-			achievements = commitAchievementsSection(material, projectSummary)
+			achievements = commitAchievementsSection(material, projectSummary, time.Since(started))
 			people = peopleSection(material)
 		}
 	}
@@ -108,7 +112,7 @@ func enrichReportSections(
 	return achievements, people, knowledge
 }
 
-func collectCommitMaterial(ctx context.Context, runner *gitcmd.Runner, repoDir, sha string) (commitMaterial, error) {
+func collectCommitMaterial(ctx context.Context, runner *gitcmd.Runner, repoDir, baseSHA, sha string) (commitMaterial, error) {
 	if runner == nil {
 		return commitMaterial{}, fmt.Errorf("git runner is unavailable")
 	}
@@ -128,7 +132,12 @@ func collectCommitMaterial(ctx context.Context, runner *gitcmd.Runner, repoDir, 
 	if err != nil {
 		return commitMaterial{}, err
 	}
-	filesOutput, err := runner.Output(ctx, repoDir, "diff-tree", "--root", "--no-commit-id", "--name-status", "-z", "--no-renames", "-r", "--end-of-options", sha)
+	var filesOutput []byte
+	if baseSHA != "" {
+		filesOutput, err = runner.Output(ctx, repoDir, "diff", "--name-status", "-z", "--no-renames", "--end-of-options", baseSHA, sha, "--")
+	} else {
+		filesOutput, err = runner.Output(ctx, repoDir, "diff-tree", "--root", "--no-commit-id", "--name-status", "-z", "--no-renames", "-r", "--end-of-options", sha)
+	}
 	if err != nil {
 		return commitMaterial{}, err
 	}
@@ -162,11 +171,14 @@ func parseCommitFiles(raw []byte) ([]commitFileChange, error) {
 	return files, nil
 }
 
-func commitAchievementsSection(material commitMaterial, projectSummary ...string) report.Section {
+func commitAchievementsSection(material commitMaterial, projectSummary string, elapsed time.Duration) report.Section {
 	modules := map[string][]string{}
 	for _, file := range material.Files {
 		path := filepath.ToSlash(file.Path)
-		module := strings.Split(path, "/")[0]
+		module := "."
+		if strings.Contains(path, "/") {
+			module = strings.Split(path, "/")[0]
+		}
 		if module == "" {
 			module = "."
 		}
@@ -179,8 +191,8 @@ func commitAchievementsSection(material commitMaterial, projectSummary ...string
 	}
 	sort.Slice(moduleChanges, func(i, j int) bool { return moduleChanges[i].Name < moduleChanges[j].Name })
 	summarySource, summaryStatus, summaryReason, summaryText := "not_available", "not_provided", "当前审查路径未提供独立的模型成果归纳；材料仅保留 Git 提交事实，不据此推断成果。", "" // allow-non-english: report JSON requires Chinese missing-value reason
-	if len(projectSummary) > 0 && strings.TrimSpace(projectSummary[0]) != "" {
-		summarySource, summaryStatus, summaryReason, summaryText = "agent.project_summary", "provided", "成果归纳来自原生 Agent ProjectSummary；未额外重写其内容。", projectSummary[0] // allow-non-english: report JSON requires Chinese source boundary
+	if strings.TrimSpace(projectSummary) != "" {
+		summarySource, summaryStatus, summaryReason, summaryText = "agent.project_summary", "provided", "成果归纳来自原生 Agent ProjectSummary；未额外重写其内容。", projectSummary // allow-non-english: report JSON requires Chinese source boundary
 	}
 	data, err := json.Marshal(commitAchievements{
 		CommitSHA: material.SHA, Subject: material.Subject,
@@ -190,6 +202,8 @@ func commitAchievementsSection(material commitMaterial, projectSummary ...string
 		ModelSummarySource: summarySource, ModelSummaryStatus: summaryStatus,
 		ModelSummary:            summaryText,
 		ModelSummaryUsageStatus: "not_collected", ModelSummaryReasonZH: summaryReason,
+		CollectionElapsedMS: elapsed.Milliseconds(), CollectionUsageStatus: "not_applicable",
+		CollectionUsageReasonZH: "成果与人员材料由 Git 事实整理，未额外调用模型；模型用量不适用。", // allow-non-english: report JSON requires Chinese usage boundary
 	})
 	if err != nil {
 		return report.Section{Status: report.StatusFailed, Reason: "提交成果事实无法编码"} // allow-non-english: report JSON requires Chinese failure reason
@@ -210,9 +224,17 @@ func knowledgeSourcesSection(manifest *session.RunManifest, toolCalls map[string
 		return notCollectedSection("原生 manifest 不可用，未能确认规则或知识来源") // allow-non-english: report JSON requires Chinese missing-value reason
 	}
 	mcpCalls := make(map[string]int64)
+	failedCounts := make(map[string]int64)
+	for _, failure := range failures {
+		if !isNativeReviewTool(failure.ToolName) {
+			failedCounts[failure.ToolName]++
+		}
+	}
 	for name, count := range toolCalls {
 		if !isNativeReviewTool(name) {
-			mcpCalls[name] = count
+			if successful := count - failedCounts[name]; successful > 0 {
+				mcpCalls[name] = successful
+			}
 		}
 	}
 	failed := make([]string, 0)
@@ -228,12 +250,12 @@ func knowledgeSourcesSection(manifest *session.RunManifest, toolCalls map[string
 	status := "observed"
 	versionStatus := "not_observed"
 	applicationStatus := "not_observed"
-	reason := "已观察到外部工具调用；未记录知识正文版本或内容摘要，不能据此证明知识已正确应用" // allow-non-english: report JSON requires Chinese knowledge boundary
+	reason := "已观察到非原生工具调用；无法确认其是否读取了知识资料，且未记录正文版本或内容摘要，不能证明知识已正确应用" // allow-non-english: report JSON requires Chinese knowledge boundary
 	sectionStatus := report.StatusProvided
 	if len(failed) > 0 && len(mcpCalls) > 0 {
-		status, reason, sectionStatus = "partial", "部分外部知识工具调用失败；成功调用仅表示已观察到工具返回，不证明知识正文版本或应用结果", report.StatusFailed // allow-non-english: report JSON requires Chinese failure reason
+		status, reason, sectionStatus = "partial", "部分非原生工具调用失败；成功调用仅表示已观察到工具返回，不证明知识正文版本或应用结果", report.StatusFailed // allow-non-english: report JSON requires Chinese failure reason
 	} else if len(failed) > 0 {
-		status, reason, sectionStatus = "failed", "外部知识工具调用失败，未能确认知识正文版本或应用结果", report.StatusFailed // allow-non-english: report JSON requires Chinese failure reason
+		status, reason, sectionStatus = "failed", "非原生工具调用全部失败，未能确认知识正文版本或应用结果", report.StatusFailed // allow-non-english: report JSON requires Chinese failure reason
 	}
 	data, err := json.Marshal(knowledgeMaterial{Status: status, RuleConfigSHA256: manifest.Execution.RuleConfigSHA256, KnowledgeVersion: versionStatus, ApplicationStatus: applicationStatus, ToolCalls: mcpCalls, FailedTools: failed, ReasonZH: reason})
 	if err != nil {
