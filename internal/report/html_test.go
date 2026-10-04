@@ -34,10 +34,6 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 		{"missing section", func(value string) string {
 			return strings.Replace(value, `data-section="governance"`, `data-section="unknown"`, 1)
 		}},
-		{"finding is not an article", func(value string) string {
-			value = strings.Replace(value, `<article data-finding-id=`, `<div data-finding-id=`, 1)
-			return strings.Replace(value, `</article>`, `</div>`, 1)
-		}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -49,17 +45,40 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 
 	flexible := content
 	for _, section := range requiredHTMLSections {
-		fixed := `<section data-section="` + section + `"><h2>` + requiredHTMLHeadings[section] + `</h2>`
-		flexible = strings.Replace(flexible, fixed, `<section data-section="`+section+`"><h2>本节摘要</h2>`, 1)
+		fixed := "<section data-section=\"" + section + "\"><h2>\u7ae0\u8282\u6807\u9898</h2>"
+		flexible = strings.Replace(flexible, fixed, "<section data-section=\""+section+"\"><h2>\u672c\u8282\u6458\u8981</h2>", 1)
 	}
-	flexible = strings.Replace(flexible, `<strong class="fact-label">严重等级</strong>`, `<strong class="fact-label">风险层级</strong>`, 1)
+	flexible = strings.Replace(flexible, "<strong class=\"fact-label\">\u4e25\u91cd\u7b49\u7ea7</strong>", "<strong class=\"fact-label\">\u98ce\u9669\u5c42\u7ea7</strong>", 1)
 	if err := ValidateHTMLDocument(flexible, material); err != nil {
 		t.Fatalf("HTML with alternate Chinese headings and labels was rejected: %v", err)
 	}
 
-	freeSummary := strings.Replace(content, `data-fact="summary_zh"`, `class="finding-summary"`, 1)
-	if err := ValidateHTMLDocument(freeSummary, material); err != nil {
-		t.Fatalf("visible finding summary without a data-fact marker was rejected: %v", err)
+	for _, summary := range []struct {
+		tag  string
+		body string
+	}{
+		{tag: "p", body: "class=\"finding-summary\""},
+		{tag: "div"},
+		{tag: "li"},
+		{tag: "span"},
+	} {
+		t.Run(summary.tag, func(t *testing.T) {
+			freeSummary := strings.Replace(content, `<span data-fact="summary_zh">`, "<"+summary.tag+" "+summary.body+">", 1)
+			freeSummary = strings.Replace(freeSummary, "</span></div><div class=\"fact-row\"><strong class=\"fact-label\">\u4e25\u91cd\u7b49\u7ea7", "</"+summary.tag+"></div><div class=\"fact-row\"><strong class=\"fact-label\">\u4e25\u91cd\u7b49\u7ea7", 1)
+			if err := ValidateHTMLDocument(freeSummary, material); err != nil {
+				t.Fatalf("visible Chinese finding summary without a data-fact marker was rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateHTMLDocumentAcceptsFindingOnOtherAllowedElement(t *testing.T) {
+	material := validHTMLMaterial()
+	document := validHTMLDocument(material)
+	document = strings.Replace(document, `<article data-finding-id=`, `<div data-finding-id=`, 1)
+	document = strings.Replace(document, `</article>`, `</div>`, 1)
+	if err := ValidateHTMLDocument(document, material); err != nil {
+		t.Fatalf("ValidateHTMLDocument() rejected a finding on a div: %v", err)
 	}
 }
 
@@ -189,7 +208,7 @@ func TestValidateHTMLDocumentRejectsInventedNonFindingFacts(t *testing.T) {
 		t.Fatalf("duplicate presentation of an unchanged fact was rejected: %v", err)
 	}
 
-	neutralProse := strings.Replace(content, `</section><section data-section="governance"`, `<p>本次审查情况如下</p></section><section data-section="governance"`, 1)
+	neutralProse := strings.Replace(content, `</section><section data-section="governance"`, "<p>\u672c\u6b21\u5ba1\u67e5\u60c5\u51b5\u5982\u4e0b</p></section><section data-section=\"governance\"", 1)
 	if err := ValidateHTMLDocument(neutralProse, material); err != nil {
 		t.Fatalf("alternate narrative was rejected despite unchanged structured findings and statistics: %v", err)
 	}
@@ -265,9 +284,9 @@ func validHTMLModelDocument(material Material) string {
 		panic(err)
 	}
 	for _, section := range requiredHTMLSections {
-		fmt.Fprintf(&builder, `<section data-section="%s"><h2>%s</h2>`, section, requiredHTMLHeadings[section])
+		fmt.Fprintf(&builder, "<section data-section=\"%s\"><h2>\u7ae0\u8282\u6807\u9898</h2>", section)
 		appendMaterialFacts(&builder, facts, section)
-		builder.WriteString(`<p>本节内容见输入材料</p>`)
+		builder.WriteString("<p>\u672c\u8282\u5185\u5bb9\u89c1\u8f93\u5165\u6750\u6599</p>")
 		switch section {
 		case "quality-coverage":
 			appendStatistics(&builder, material)

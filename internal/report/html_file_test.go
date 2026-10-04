@@ -5,6 +5,8 @@ package report
 
 import (
 	"errors"
+	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,17 +188,33 @@ func TestWriteHTMLRejectsDefaultHiddenContainersAndDoesNotPublish(t *testing.T) 
 	}
 }
 
-func TestWriteHTMLRejectsNonArticleFindingAndDoesNotPublish(t *testing.T) {
+func TestWriteHTMLAcceptsNonArticleFinding(t *testing.T) {
 	material := validHTMLMaterial()
 	document := validHTMLModelDocument(material)
+	summaryText := html.EscapeString(material.Findings[0].Display.SummaryZH)
+	summaryRow := fmt.Sprintf(`<div class="fact-row"><strong class="fact-label">%s</strong><span data-fact="summary_zh">%s</span></div>`, findingHTMLLabels["summary_zh"], summaryText)
+	if !strings.Contains(document, summaryRow) {
+		t.Fatal("fixture did not contain the finding summary fact row")
+	}
+	document = strings.Replace(document, summaryRow, `<div>`+summaryText+`</div>`, 1)
 	document = strings.Replace(document, `<article data-finding-id=`, `<div data-finding-id=`, 1)
 	document = strings.Replace(document, `</article>`, `</div>`, 1)
 	target := filepath.Join(t.TempDir(), "report.html")
-	if _, err := WriteHTML(target, false, document, material); err == nil {
-		t.Fatal("WriteHTML accepted a finding without an article element")
+	if _, err := WriteHTML(target, false, document, material); err != nil {
+		t.Fatalf("WriteHTML() rejected a finding on a div: %v", err)
 	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Fatalf("rejected non-article finding left a final file: %v", err)
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read published HTML: %v", err)
+	}
+	if !strings.Contains(string(content), `<div data-finding-id=`) {
+		t.Fatal("published HTML lost the non-article finding element")
+	}
+	if !strings.Contains(string(content), `<summary><div>`+summaryText+`</div></summary>`) {
+		t.Fatal("published HTML did not use the visible div as the finding disclosure summary")
+	}
+	if !strings.Contains(string(content), `data-review-category-index=`) || !strings.Contains(string(content), `[data-finding-id]:not([data-review-category-index=`) {
+		t.Fatal("published HTML did not make the finding element available to category filtering")
 	}
 }
 

@@ -189,6 +189,21 @@ func TestValidateMultiHTMLDocumentRequiresReviewUnitOwnershipForFindingIDs(t *te
 		t.Fatalf("ValidateMultiHTMLDocument() rejected colliding IDs owned by separate units: %v", err)
 	}
 	article := `<article data-review-unit-id="` + input.ReviewUnits[1].ID + `" data-finding-id="` + first.Findings[0].ID + `"`
+	articleStart := strings.Index(document, article)
+	if articleStart < 0 {
+		t.Fatal("fixture did not contain the second unit's finding")
+	}
+	articleEndOffset := strings.Index(document[articleStart:], `</article>`)
+	if articleEndOffset < 0 {
+		t.Fatal("fixture did not contain a complete finding element")
+	}
+	articleEnd := articleStart + articleEndOffset + len(`</article>`)
+	otherElement := strings.Replace(document[articleStart:articleEnd], `<article `, `<div `, 1)
+	otherElement = strings.Replace(otherElement, `</article>`, `</div>`, 1)
+	withoutArticle := document[:articleStart] + otherElement + document[articleEnd:]
+	if err := ValidateMultiHTMLDocument(withoutArticle, input); err != nil {
+		t.Fatalf("ValidateMultiHTMLDocument() rejected a finding on a div: %v", err)
+	}
 	withoutOwner := strings.Replace(document, article, `<article data-finding-id="`+first.Findings[0].ID+`"`, 1)
 	if withoutOwner == document {
 		t.Fatal("fixture did not contain the second unit's colliding finding")
@@ -254,7 +269,7 @@ func validMultiHTMLDocument(input MultiReportInput) string {
 		panic(err)
 	}
 	for _, section := range requiredHTMLSections {
-		fmt.Fprintf(&builder, `<section data-section="%s"><h2>%s</h2>`, section, requiredHTMLHeadings[section])
+		fmt.Fprintf(&builder, "<section data-section=\"%s\"><h2>\u7ae0\u8282\u6807\u9898</h2>", section)
 		for index, unit := range input.ReviewUnits {
 			materialFacts, err := materialHTMLFacts(unit.Material)
 			if err != nil {
@@ -307,7 +322,7 @@ func validMultiHTMLDocument(input MultiReportInput) string {
 				fmt.Fprintf(&builder, `<span data-fact="%s">%s</span>`, html.EscapeString(name), html.EscapeString(facts[name]))
 			}
 		}
-		builder.WriteString(`<p>本节内容见输入材料</p>`)
+		builder.WriteString("<p>\u672c\u8282\u5185\u5bb9\u89c1\u8f93\u5165\u6750\u6599</p>")
 		builder.WriteString(`</section>`)
 	}
 	builder.WriteString(`</main></body></html>`)

@@ -28,9 +28,9 @@ h2 { margin: 0 0 .75rem; font-size: 1.35rem; }
 .report-statistics { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; }
 .report-statistic { padding: .75rem; border: 1px solid #c7cdd3; border-radius: 4px; }
 output { display: block; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-article { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
+[data-finding-id] { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
 section:not([data-section="finding-details"]) > div[data-review-unit-id] { margin: .75rem 0; padding: .5rem 0 .75rem; border-bottom: 1px solid #c7cdd3; }
-article h3 { margin-top: 0; }
+[data-finding-id] h3 { margin-top: 0; }
 pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fact-row pre { margin: 0; }
 .report-filters { display: grid; gap: .75rem; margin: 1rem 0 1.5rem; }
@@ -44,7 +44,7 @@ details.finding-details > summary { cursor: pointer; border-radius: 2px; }
 details.finding-details > summary .fact-row { margin: 0; }
 details.finding-details[open] > .finding-detail-content { padding-top: .25rem; }
 @media (max-width: 600px) { body { padding: 1rem; } .fact-row { grid-template-columns: minmax(0, 1fr); } }
-@media print { body { max-width: none; padding: 0; color: #000; } .report-filters { display: none !important; } section, article, .fact-row { break-inside: avoid; page-break-inside: avoid; } details.finding-details:not([open]) > .finding-detail-content { display: block !important; } details.finding-details > summary { list-style: none; } }
+@media print { body { max-width: none; padding: 0; color: #000; } .report-filters { display: none !important; } section, [data-finding-id], .fact-row { break-inside: avoid; page-break-inside: avoid; } details.finding-details:not([open]) > .finding-detail-content { display: block !important; } details.finding-details > summary { list-style: none; } }
 `
 
 var (
@@ -56,22 +56,14 @@ var requiredHTMLSections = []string{
 	"overview", "quality-coverage", "finding-details", "changes", "achievements", "people", "governance", "limitations", "sources",
 }
 
-var requiredHTMLHeadings = map[string]string{
-	"overview":         "\u62a5\u544a\u6982\u89c8",
-	"quality-coverage": "\u8d28\u91cf\u4e0e\u8986\u76d6",
-	"finding-details":  "\u95ee\u9898\u660e\u7ec6",
-	"changes":          "\u4ed3\u5e93\u53d8\u66f4",
-	"achievements":     "\u5de5\u4f5c\u6210\u679c",
-	"people":           "\u4eba\u5458\u660e\u7ec6",
-	"governance":       "\u9879\u76ee\u7ed3\u6784\u68c0\u67e5",
-	"limitations":      "\u9650\u5236\u4e0e\u672a\u786e\u8ba4\u4e8b\u9879",
-	"sources":          "\u6750\u6599\u6765\u6e90",
-}
-
-// HTMLRequiredHeading 返回固定章节的中文标题，供验证与修复诊断共享。 // allow-non-english: 固定中文报告标题
-func HTMLRequiredHeading(section string) (string, bool) {
-	heading, ok := requiredHTMLHeadings[section]
-	return heading, ok
+// IsRequiredHTMLSection 报告章节是否属于必需结构。 // allow-non-english: 用户要求中文代码注释
+func IsRequiredHTMLSection(section string) bool {
+	for _, required := range requiredHTMLSections {
+		if section == required {
+			return true
+		}
+	}
+	return false
 }
 
 var allowedHTMLTags = map[string]struct{}{
@@ -182,9 +174,6 @@ func ValidateHTMLDocument(document string, material Material) error {
 				stats[value] = node
 			}
 			if value := attribute(node, "data-finding-id"); value != "" {
-				if !strings.EqualFold(tag, "article") {
-					return fmt.Errorf("HTML finding %q must use an article element", value)
-				}
 				if _, exists := findings[value]; exists {
 					return fmt.Errorf("HTML document duplicates finding %q", value)
 				}
@@ -368,26 +357,64 @@ func validateHTMLFindings(nodes map[string]*html.Node, material Material, findin
 	return nil
 }
 
-func findingHasVisibleDescription(article *html.Node) bool {
-	if facts := findAllDataFacts(article); len(facts["summary_zh"]) == 1 {
-		return strings.TrimSpace(nodeText(facts["summary_zh"][0])) != ""
+func findingHasVisibleDescription(finding *html.Node) bool {
+	return findingSummaryNode(finding) != nil
+}
+
+func findingSummaryNode(finding *html.Node) *html.Node {
+	if facts := findAllDataFacts(finding); len(facts["summary_zh"]) == 1 {
+		if strings.TrimSpace(nodeText(facts["summary_zh"][0])) != "" {
+			return facts["summary_zh"][0]
+		}
 	}
-	var found bool
+	var found *html.Node
+	foundPriority, foundLength := 0, 0
 	var visit func(*html.Node)
 	visit = func(node *html.Node) {
-		if found || node.Type != html.ElementNode {
+		if node.Type != html.ElementNode {
 			return
 		}
-		if isHeading(node.Data) || strings.EqualFold(node.Data, "p") || hasClass(node, "finding-summary") {
-			found = strings.TrimSpace(nodeText(node)) != "" && containsHan(nodeText(node))
+		if strings.EqualFold(node.Data, "pre") || strings.EqualFold(node.Data, "code") ||
+			attribute(node, "data-fact") != "" || hasClass(node, "fact-label") {
 			return
 		}
-		for child := node.FirstChild; child != nil && !found; child = child.NextSibling {
+		if !hasClass(node, "fact-row") {
+			text := strings.TrimSpace(nodeText(node))
+			hanCount := countHan(text)
+			if hanCount >= 2 && len([]rune(text)) <= 300 {
+				priority := 0
+				if isHeading(node.Data) || strings.EqualFold(node.Data, "p") {
+					priority = 1
+				}
+				if hasClass(node, "finding-summary") {
+					priority = 2
+				}
+				if strings.EqualFold(node.Data, "div") || strings.EqualFold(node.Data, "li") || strings.EqualFold(node.Data, "span") {
+					priority = 1
+				}
+				if priority > foundPriority || priority == foundPriority && len([]rune(text)) > foundLength {
+					found, foundPriority, foundLength = node, priority, len([]rune(text))
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
 			visit(child)
 		}
 	}
-	visit(article)
+	for child := finding.FirstChild; child != nil; child = child.NextSibling {
+		visit(child)
+	}
 	return found
+}
+
+func countHan(value string) int {
+	count := 0
+	for _, char := range value {
+		if unicode.Is(unicode.Han, char) {
+			count++
+		}
+	}
+	return count
 }
 
 func displayFindingFact(name, value string) string {
@@ -788,13 +815,13 @@ func reportHTMLStylesFor(materials []Material) string {
 	var styles strings.Builder
 	styles.WriteString(reportHTMLStyles)
 	for index := range materials {
-		fmt.Fprintf(&styles, `main:has(#report-filter-unit-option-%d:checked) article:not([data-review-unit-index="%d"]) { display: none; }`, index, index)
+		fmt.Fprintf(&styles, `main:has(#report-filter-unit-option-%d:checked) [data-finding-id]:not([data-review-unit-index="%d"]) { display: none; }`, index, index)
 	}
 	for index := range []string{"critical", "high", "medium", "low", "not_collected"} {
-		fmt.Fprintf(&styles, `main:has(#report-filter-severity-option-%d:checked) article:not([data-review-severity-index="%d"]) { display: none; }`, index, index)
+		fmt.Fprintf(&styles, `main:has(#report-filter-severity-option-%d:checked) [data-finding-id]:not([data-review-severity-index="%d"]) { display: none; }`, index, index)
 	}
 	for _, category := range reportFilterCategories(materials) {
-		fmt.Fprintf(&styles, `main:has(#report-filter-category-option-%d:checked) article:not([data-review-category-index="%d"]) { display: none; }`, category.index, category.index)
+		fmt.Fprintf(&styles, `main:has(#report-filter-category-option-%d:checked) [data-finding-id]:not([data-review-category-index="%d"]) { display: none; }`, category.index, category.index)
 	}
 	return styles.String()
 }
