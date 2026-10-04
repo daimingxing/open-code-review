@@ -4,7 +4,7 @@
 
 ## 目标与资料入口
 
-完成[功能 Spec](spec.md)及[工单索引](README.md)中的 01–09，并在同一功能集成分支完成整体验收。范围和验收条件以 Spec 与各工单为准，依赖关系以工单索引及各工单的 Blocked by 为准。
+完成[功能 Spec](spec.md)及[工单索引](README.md)中的 01–09，并在 `feature-review-report` 功能集成分支完成整体验收。范围和验收条件以 Spec 与各工单为准，依赖关系以工单索引及各工单的 Blocked by 为准。实施分支或工作树不能替代最终交付目标；集成使用 Merge 并保留已有历史。
 
 启动前读取仓库生效的 AGENTS 约定、[项目设计](../../project-docs/project-design.md)、[分支维护](../../project-docs/branch-maintenance.md)、[领域术语](../../GLOSSARY.md)及 Spec 引用的 ADR。涉及上游行为时读取 [OCR 知识库](../../project-docs/open-code-review/README.md)，真实效果测试使用[资源索引](../../project-docs/review-resources.md)，复测记录遵循 [mock 目录约定](../../project-docs/mock/README.md)。
 
