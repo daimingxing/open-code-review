@@ -34,9 +34,6 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 		{"missing section", func(value string) string {
 			return strings.Replace(value, `data-section="governance"`, `data-section="unknown"`, 1)
 		}},
-		{"incorrect finding label", func(value string) string {
-			return strings.Replace(value, `<strong class="fact-label">严重等级</strong><span data-fact="severity_zh">`, `<strong class="fact-label">原因</strong><span data-fact="severity_zh">`, 1) // allow-non-english: 规格要求的中文事实标签
-		}},
 		{"finding is not an article", func(value string) string {
 			value = strings.Replace(value, `<article data-finding-id=`, `<div data-finding-id=`, 1)
 			return strings.Replace(value, `</article>`, `</div>`, 1)
@@ -48,6 +45,21 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 				t.Fatal("ValidateHTMLDocument accepted an incomplete or altered report")
 			}
 		})
+	}
+
+	flexible := content
+	for _, section := range requiredHTMLSections {
+		fixed := `<section data-section="` + section + `"><h2>` + requiredHTMLHeadings[section] + `</h2>`
+		flexible = strings.Replace(flexible, fixed, `<section data-section="`+section+`"><h2>本节摘要</h2>`, 1)
+	}
+	flexible = strings.Replace(flexible, `<strong class="fact-label">严重等级</strong>`, `<strong class="fact-label">风险层级</strong>`, 1)
+	if err := ValidateHTMLDocument(flexible, material); err != nil {
+		t.Fatalf("HTML with alternate Chinese headings and labels was rejected: %v", err)
+	}
+
+	freeSummary := strings.Replace(content, `data-fact="summary_zh"`, `class="finding-summary"`, 1)
+	if err := ValidateHTMLDocument(freeSummary, material); err != nil {
+		t.Fatalf("visible finding summary without a data-fact marker was rejected: %v", err)
 	}
 }
 
@@ -106,6 +118,37 @@ func TestValidateHTMLDocumentKeepsEvidenceAsEscapedText(t *testing.T) {
 	}
 }
 
+func TestValidateHTMLDocumentRequiresVisibleEvidenceAndSectionContent(t *testing.T) {
+	material := validHTMLMaterial()
+	content := validHTMLDocument(material)
+	evidence := html.EscapeString(material.Findings[0].Evidence.Code)
+	missingEvidence := strings.Replace(content, `data-fact="evidence_code">`+evidence, `data-fact="evidence_code"></span><span>`, 1)
+	if missingEvidence == content {
+		t.Fatal("fixture did not contain the finding evidence")
+	}
+	if err := ValidateHTMLDocument(missingEvidence, material); err == nil || !strings.Contains(err.Error(), "omits its evidence") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want missing evidence rejection", err)
+	}
+
+	sectionStart := strings.Index(content, `<section data-section="sources">`)
+	if sectionStart < 0 {
+		t.Fatal("fixture is missing the sources section")
+	}
+	headingEnd := strings.Index(content[sectionStart:], `</h2>`)
+	if headingEnd < 0 {
+		t.Fatal("fixture is missing the sources section heading")
+	}
+	contentStart := sectionStart + headingEnd + len(`</h2>`)
+	sectionEnd := strings.Index(content[contentStart:], `</section>`)
+	if sectionEnd < 0 {
+		t.Fatal("fixture is missing the sources section end")
+	}
+	emptySection := content[:contentStart] + `</section>` + content[contentStart+sectionEnd+len(`</section>`):]
+	if err := ValidateHTMLDocument(emptySection, material); err == nil || !strings.Contains(err.Error(), `missing required section "sources"`) {
+		t.Fatalf("ValidateHTMLDocument() = %v, want empty required section rejection", err)
+	}
+}
+
 func TestValidateHTMLDocumentRejectsInventedNonFindingFacts(t *testing.T) {
 	material := validHTMLMaterial()
 	material.Sections.People = Section{Status: StatusProvided, Data: json.RawMessage(`{"contributors":[{"name":"Alice","commit_count":3}]}`)}
@@ -142,13 +185,17 @@ func TestValidateHTMLDocumentRejectsInventedNonFindingFacts(t *testing.T) {
 	if duplicated == content {
 		t.Fatal("fixture did not contain repository.name fact")
 	}
-	if err := ValidateHTMLDocument(duplicated, material); err == nil {
-		t.Fatal("ValidateHTMLDocument accepted a duplicated material fact")
+	if err := ValidateHTMLDocument(duplicated, material); err != nil {
+		t.Fatalf("duplicate presentation of an unchanged fact was rejected: %v", err)
 	}
 
+	neutralProse := strings.Replace(content, `</section><section data-section="governance"`, `<p>本次审查情况如下</p></section><section data-section="governance"`, 1)
+	if err := ValidateHTMLDocument(neutralProse, material); err != nil {
+		t.Fatalf("alternate narrative was rejected despite unchanged structured findings and statistics: %v", err)
+	}
 	inventedProse := strings.Replace(content, `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
-	if err := ValidateHTMLDocument(inventedProse, material); err == nil {
-		t.Fatal("ValidateHTMLDocument accepted free-form unverified report prose")
+	if err := ValidateHTMLDocument(inventedProse, material); err == nil || !strings.Contains(err.Error(), "unsupported numeric claim") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want ungrounded numeric claim rejection", err)
 	}
 	footerProse := strings.Replace(content, `</body>`, `<footer>Avery made 42 commits.</footer></body>`, 1)
 	if err := ValidateHTMLDocument(footerProse, material); err == nil {
@@ -220,6 +267,7 @@ func validHTMLModelDocument(material Material) string {
 	for _, section := range requiredHTMLSections {
 		fmt.Fprintf(&builder, `<section data-section="%s"><h2>%s</h2>`, section, requiredHTMLHeadings[section])
 		appendMaterialFacts(&builder, facts, section)
+		builder.WriteString(`<p>本节内容见输入材料</p>`)
 		switch section {
 		case "quality-coverage":
 			appendStatistics(&builder, material)

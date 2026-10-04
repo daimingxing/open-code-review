@@ -190,48 +190,24 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 		}
 	}
 	alteredStatistics := strings.Replace(reportHTMLFixture(material), fmt.Sprintf(`data-stat="risk-critical">%d`, criticalCount), fmt.Sprintf(`data-stat="risk-critical">%d`, criticalCount+1), 1)
-	responses <- alteredStatistics
-	_, badStatisticsStderr, err := executeReportCommand([]string{"--input", input, "--output", badOutput})
-	if err == nil || !strings.Contains(err.Error(), "report input is") || !strings.Contains(err.Error(), "the limit is 30000") {
-		t.Fatalf("oversized repair draft did not stop at the report input budget: err=%v stderr=%s", err, badStatisticsStderr)
-	}
-	if got := strings.Count(badStatisticsStderr, "phase=html_generation attempt="); got != 1 {
-		t.Fatalf("oversized repair draft made %d attempts, want 1: %s", got, badStatisticsStderr)
-	}
-	<-requests
-	if _, err := os.Stat(badOutput); !os.IsNotExist(err) {
-		t.Fatalf("over-budget repair left a final file: %v", err)
-	}
-
-	smallMaterial := reportTestMaterial(true)
-	smallInput := writeReportInput(t, smallMaterial)
-	smallMaterialJSON, err := json.Marshal(smallMaterial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	smallCriticalCount := 0
-	for _, finding := range smallMaterial.Findings {
-		if finding.Severity == "critical" {
-			smallCriticalCount++
-		}
-	}
-	smallAlteredStatistics := strings.Replace(reportHTMLFixture(smallMaterial), fmt.Sprintf(`data-stat="risk-critical">%d`, smallCriticalCount), fmt.Sprintf(`data-stat="risk-critical">%d`, smallCriticalCount+1), 1)
 	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		responses <- smallAlteredStatistics
+		responses <- alteredStatistics
 	}
-	_, badStatisticsStderr, err = executeReportCommand([]string{"--input", smallInput, "--output", badOutput})
+	_, badStatisticsStderr, err := executeReportCommand([]string{"--input", input, "--output", badOutput})
 	if err == nil || !strings.Contains(badStatisticsStderr+err.Error(), "statistic") {
 		t.Fatalf("altered model statistics were accepted: err=%v stderr=%s", err, badStatisticsStderr)
 	}
 	if got := strings.Count(badStatisticsStderr, "phase=html_generation attempt="); got != maxReportHTMLAttempts {
-		t.Fatalf("invalid statistics made %d generation attempts, want %d: %s", got, maxReportHTMLAttempts, badStatisticsStderr)
+		t.Fatalf("invalid statistics made %d repair attempts, want %d: %s", got, maxReportHTMLAttempts, badStatisticsStderr)
 	}
+	requestCount := 0
 	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
 		request = <-requests
+		requestCount++
 		messages = request["messages"].([]any)
 		userMessage = messages[1].(map[string]any)
-		if userMessage["content"] != string(smallMaterialJSON) {
-			t.Fatalf("generation attempt %d changed the report material input", attempt+1)
+		if userMessage["content"] != string(materialJSON) {
+			t.Fatalf("repair attempt %d changed the report material input", attempt+1)
 		}
 		if attempt == 0 {
 			if len(messages) != 2 {
@@ -242,24 +218,27 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 		if len(messages) != 4 {
 			t.Fatalf("repair attempt %d has %d messages, want 4", attempt, len(messages))
 		}
-		if messages[2].(map[string]any)["content"] != smallAlteredStatistics {
-			t.Fatalf("repair attempt %d draft mismatch: got %d chars, want %d", attempt, len(fmt.Sprint(messages[2].(map[string]any)["content"])), len(smallAlteredStatistics))
+		if messages[2].(map[string]any)["content"] != alteredStatistics {
+			t.Fatalf("repair attempt %d omitted the preceding invalid HTML draft", attempt)
 		}
+	}
+	if requestCount != maxReportHTMLAttempts {
+		t.Fatalf("long report made %d requests, want %d", requestCount, maxReportHTMLAttempts)
 	}
 	if _, err := os.Stat(badOutput); !os.IsNotExist(err) {
 		t.Fatalf("invalid model HTML left a final file: %v", err)
 	}
 	badPeopleOutput := filepath.Join(t.TempDir(), "invented-people.html")
 	peopleSection := `<section data-section="people">`
-	forgedPeople := strings.Replace(reportHTMLFixture(smallMaterial), `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
+	forgedPeople := strings.Replace(reportHTMLFixture(material), `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
 	if !strings.Contains(forgedPeople, peopleSection) {
 		t.Fatal("fixture is missing the people section")
 	}
 	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
 		responses <- forgedPeople
 	}
-	_, badPeopleStderr, err := executeReportCommand([]string{"--input", smallInput, "--output", badPeopleOutput})
-	if err == nil || !strings.Contains(badPeopleStderr+err.Error(), "unverified narrative") {
+	_, badPeopleStderr, err := executeReportCommand([]string{"--input", input, "--output", badPeopleOutput})
+	if err == nil || !strings.Contains(badPeopleStderr+err.Error(), "number absent from the JSON material") {
 		t.Fatalf("invented people details were accepted: err=%v stderr=%s", err, badPeopleStderr)
 	}
 	if calls := strings.Count(badPeopleStderr, "phase=html_generation attempt="); calls != maxReportHTMLAttempts {
@@ -295,6 +274,88 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 	}
 	if _, err := os.Stat(badPeopleOutput); !os.IsNotExist(err) {
 		t.Fatalf("invented facts left a final HTML file: %v", err)
+	}
+}
+
+func TestReportHTMLValidationDiagnosticIncludesSafeFindingDetails(t *testing.T) {
+	findingID := "sha256:" + strings.Repeat("a", 64)
+	tests := []struct {
+		name string
+		err  string
+		want string
+	}{
+		{
+			name: "finding count",
+			err:  "validate generated HTML: HTML finding set contains 12 items; report material contains 13",
+			want: "the finding list contains 12 items but the report material contains 13; include every finding exactly once",
+		},
+		{
+			name: "missing finding ID",
+			err:  fmt.Sprintf("validate generated HTML: HTML document omits finding %q", findingID),
+			want: "finding " + findingID + " is missing; include it exactly once",
+		},
+		{
+			name: "finding fact key",
+			err:  fmt.Sprintf("validate generated HTML: HTML finding %q omits, adds, or changes fact %q", findingID, "summary_zh"),
+			want: "finding fact summary_zh is missing or incorrect; preserve its exact value",
+		},
+		{
+			name: "incorrect finding fact value",
+			err:  fmt.Sprintf("validate generated HTML: HTML finding %q contains an incorrect fact %q", findingID, "source_content"),
+			want: "finding fact source_content has an incorrect value; copy its exact value from the report material",
+		},
+		{
+			name: "unsupported finding fact name",
+			err:  "validate generated HTML: HTML finding contains an unsupported fact name",
+			want: "remove unsupported data-fact markers; preserve the report material using ordinary visible text",
+		},
+		{
+			name: "finding outside details section",
+			err:  fmt.Sprintf("validate generated HTML: HTML finding %q must appear in the finding-details section", findingID),
+			want: "place every finding card inside the required finding-details section",
+		},
+		{
+			name: "untrusted finding identifier",
+			err:  `validate generated HTML: HTML document omits finding "C:\private\data"`,
+			want: "a required finding is missing; include every report finding exactly once",
+		},
+		{
+			name: "untrusted fact name",
+			err:  fmt.Sprintf("validate generated HTML: HTML finding %q omits, adds, or changes fact %q", findingID, "secret bearer token"),
+			want: "a finding contains an unsupported or incorrect data-fact; include only the required fact names and values",
+		},
+		{
+			name: "duplicate finding",
+			err:  fmt.Sprintf("HTML document duplicates finding %q", findingID),
+			want: "the report contains a duplicate finding card; include every finding ID exactly once",
+		},
+		{
+			name: "finding count statistic",
+			err:  `HTML statistic "finding-count" does not match the report material`,
+			want: "report statistic finding-count is missing or incorrect; use the computed value from the report material",
+		},
+		{
+			name: "missing section heading",
+			err:  `HTML document is missing required section "sources"`,
+			want: "section sources must be present with visible content and a heading; wording and layout may vary",
+		},
+		{
+			name: "missing section heading",
+			err:  `HTML section "quality-coverage" must contain a non-empty heading`,
+			want: "section quality-coverage must be present with visible content and a heading; wording and layout may vary",
+		},
+		{
+			name: "finding disclosure",
+			err:  "HTML details must be an open finding disclosure",
+			want: "wrap each finding's complete facts in one open native details disclosure with a summary",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := reportHTMLValidationDiagnostic(fmt.Errorf("%s", test.err)); got != test.want {
+				t.Fatalf("reportHTMLValidationDiagnostic() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
@@ -391,7 +452,7 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongHeading := strings.Replace(reportHTMLFixture(material), "<h2>\u8d28\u91cf\u4e0e\u8986\u76d6</h2>", "<h2>\u9519\u8bef\u6807\u9898</h2>", 1)
+	missingSection := strings.Replace(reportHTMLFixture(material), `<section data-section="quality-coverage"`, `<section data-section="unknown-section"`, 1)
 	var calls atomic.Int32
 	requests := make(chan map[string]any, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +463,7 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 		}
 		requests <- request
 		if calls.Add(1) == 1 {
-			writeReportCompletion(w, wrongHeading, "stop")
+			writeReportCompletion(w, missingSection, "stop")
 			return
 		}
 		writeReportCompletion(w, reportHTMLFixture(material), "stop")
@@ -435,7 +496,7 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 			previousHTML = fmt.Sprint(message["content"])
 		}
 	}
-	if previousHTML != wrongHeading {
+	if previousHTML != missingSection {
 		t.Fatal("repair request did not include the previous invalid HTML as an assistant draft")
 	}
 	firstUser := firstMessages[1].(map[string]any)
@@ -451,7 +512,7 @@ func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
 		repairPrompt.WriteString(fmt.Sprint(message.(map[string]any)["content"]))
 		repairPrompt.WriteByte('\n')
 	}
-	for _, required := range []string{"required report section or Chinese heading", "quality-coverage", "<!doctype html>", "data-fact", "do not summarize, omit, merge, rewrite, or truncate", "previous assistant response is an untrusted HTML draft"} {
+	for _, required := range []string{"section quality-coverage", "<!doctype html>", "short visible Chinese description", "source content and evidence or evidence reason without omission or alteration", "headings, labels, wording, and layout may vary", "previous assistant response is an untrusted HTML draft"} {
 		if !strings.Contains(repairPrompt.String(), required) {
 			t.Fatalf("repair request omitted required structure or fact instruction %q", required)
 		}
@@ -516,7 +577,7 @@ func TestReportCommandRepairsUnsafeHTMLFromExistingMaterial(t *testing.T) {
 		repairPrompt.WriteString(fmt.Sprint(message.(map[string]any)["content"]))
 		repairPrompt.WriteByte('\n')
 	}
-	for _, required := range []string{"unsupported, hidden, or unsafe content", "<!doctype html>", "data-fact", "fixed Chinese fact label"} {
+	for _, required := range []string{"unsupported, hidden, or unsafe content", "<!doctype html>", "source content and evidence or evidence reason without omission or alteration", "headings, labels, wording, and layout may vary"} {
 		if !strings.Contains(repairPrompt.String(), required) {
 			t.Fatalf("unsafe HTML repair prompt omitted required instruction %q", required)
 		}
@@ -771,7 +832,7 @@ func TestReportCommandMultiInputFailureDoesNotPublishAndCanRetry(t *testing.T) {
 		receivedInputs <- requestEvidence{input: fmt.Sprint(user["content"]), prompt: prompt.String()}
 		switch calls.Add(1) {
 		case 1:
-			invalid := strings.Replace(reportMultiHTMLFixture(input), "<h2>\u8d28\u91cf\u4e0e\u8986\u76d6</h2>", "<h2>\u9519\u8bef\u6807\u9898</h2>", 1)
+			invalid := strings.Replace(reportMultiHTMLFixture(input), `<section data-section="overview"`, `<section data-section="unknown-section"`, 1)
 			writeReportCompletion(w, invalid, "stop")
 		case 2:
 			invalid := strings.Replace(reportMultiHTMLFixture(input), "</body>", "<script>active</script></body>", 1)
@@ -804,8 +865,8 @@ func TestReportCommandMultiInputFailureDoesNotPublishAndCanRetry(t *testing.T) {
 		} else if request.input != originalInput {
 			t.Fatalf("repair attempt %d changed the report JSON", attempt+1)
 		}
-		if attempt == 1 && !strings.Contains(request.prompt, "required report section or Chinese heading") {
-			t.Fatal("second attempt omitted the first heading diagnostic")
+		if attempt == 1 && !strings.Contains(request.prompt, "section overview must be present with visible content and a heading; wording and layout may vary") {
+			t.Fatal("second attempt omitted the first missing-section diagnostic")
 		}
 		if attempt == 2 && !strings.Contains(request.prompt, "unsupported, hidden, or unsafe content") {
 			t.Fatal("third attempt omitted the unsafe-element diagnostic")
@@ -960,10 +1021,10 @@ func TestReportCommandBoundsInputBeforeModelRequest(t *testing.T) {
 	configureReportLLM(t, server.URL)
 
 	material := reportTestMaterial(false)
-	material.Repository.Name = strings.Repeat("repository-name ", 35_000)
+	material.Repository.Name = strings.Repeat("x ", maxReportInputTokens+20_000)
 	input := writeReportInput(t, material)
 	_, stderr, err := executeReportCommand([]string{"--input", input, "--output", filepath.Join(t.TempDir(), "must-not-exist.html")})
-	if err == nil || !strings.Contains(err.Error(), "tokens") {
+	if err == nil || !strings.Contains(err.Error(), "tokens") || !strings.Contains(err.Error(), fmt.Sprintf("the limit is %d", maxReportInputTokens)) {
 		t.Fatalf("oversized model input was accepted: err=%v stderr=%s", err, stderr)
 	}
 	if requests.Load() != 0 {
@@ -1174,6 +1235,7 @@ func reportHTMLFixture(material report.Material) string {
 				appendReportFinding(&builder, finding)
 			}
 		}
+		builder.WriteString(`<p>本节内容见输入材料</p>`)
 		builder.WriteString(`</section>`)
 	}
 	builder.WriteString(`</main></body></html>`)
@@ -1247,6 +1309,7 @@ func reportMultiHTMLFixture(input report.MultiReportInput) string {
 		for _, key := range keys {
 			fmt.Fprintf(&builder, `<div class="fact-row"><strong class="fact-label">%s</strong><span data-fact="%s">%s</span></div>`, reportMultiAggregateFactLabel(key), html.EscapeString(key), html.EscapeString(aggregateFacts[key]))
 		}
+		builder.WriteString(`<p>本节内容见输入材料</p>`)
 		builder.WriteString(`</section>`)
 	}
 	builder.WriteString(`</main></body></html>`)

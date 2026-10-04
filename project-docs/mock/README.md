@@ -58,4 +58,4 @@
 
 工单 08 的多份输入、归属与身份统计、重复拒绝、HTML 安全保存及 Edge 离线浏览器复测见[多份中文 HTML 报告复测记录](review-report-multi-input-08.md)（受控模型与 Edge 已验证；真实模型未在本工单调用）。
 
-工单 09 的有界 HTML 修复、事实/预算累计、短长单多份 Edge 交互与打印、真实模型失败及 CLI 包级超时定位见[报告阅读体验与有界修复复测记录](review-report-experience-09.md)。
+工单 09 的有界 HTML 修复、事实/预算累计、短长单多份 Edge 交互与打印、真实 DeepSeek Flash HTML 成品验收（首轮失败、具体诊断后修复成功）及 CLI 包级超时定位见[报告阅读体验与有界修复复测记录](review-report-experience-09.md)。真实模型成品和截图留在临时目录，不提交。
