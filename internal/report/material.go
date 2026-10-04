@@ -5,10 +5,13 @@
 package report
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -17,6 +20,38 @@ import (
 )
 
 const MaterialSchemaVersion = "1"
+
+const MaxMaterialJSONBytes = 1 << 20
+
+func DecodeMaterial(data []byte) (Material, error) {
+	if len(data) == 0 || len(data) > MaxMaterialJSONBytes {
+		return Material{}, fmt.Errorf("report material size must be between 1 byte and %d bytes", MaxMaterialJSONBytes)
+	}
+	var version struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &version); err != nil {
+		return Material{}, fmt.Errorf("decode report material: %w", err)
+	}
+	if version.SchemaVersion != MaterialSchemaVersion {
+		return Material{}, fmt.Errorf("report material schema_version %q is unsupported", version.SchemaVersion)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var material Material
+	if err := decoder.Decode(&material); err != nil {
+		return Material{}, fmt.Errorf("decode report material: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err == nil {
+		return Material{}, fmt.Errorf("decode report material: unexpected trailing JSON value")
+	} else if !errors.Is(err, io.EOF) {
+		return Material{}, fmt.Errorf("decode report material: %w", err)
+	}
+	if err := ValidateMaterial(material); err != nil {
+		return Material{}, fmt.Errorf("validate report material: %w", err)
+	}
+	return material, nil
+}
 
 type Status string
 

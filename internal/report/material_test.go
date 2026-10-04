@@ -4,6 +4,7 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -80,6 +81,29 @@ func TestValidateMaterialRequiresVersionedFacts(t *testing.T) {
 			err := ValidateMaterial(candidate)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("ValidateMaterial error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecodeMaterialChecksJSONCompatibilityAndSize(t *testing.T) {
+	encoded, err := json.Marshal(validMaterial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeMaterial(encoded); err != nil {
+		t.Fatalf("DecodeMaterial rejected valid report material: %v", err)
+	}
+	for name, data := range map[string][]byte{
+		"native JSON":    []byte(`{"comments":[]}`),
+		"unknown field":  append(append([]byte(nil), encoded[:len(encoded)-1]...), []byte(`,"unknown":true}`)...),
+		"trailing value": append(append([]byte(nil), encoded...), []byte(` {}`)...),
+		"invalid JSON":   []byte(`{"schema_version":`),
+		"oversized":      bytes.Repeat([]byte("x"), MaxMaterialJSONBytes+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeMaterial(data); err == nil {
+				t.Fatal("DecodeMaterial accepted incompatible material")
 			}
 		})
 	}

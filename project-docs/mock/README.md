@@ -53,3 +53,5 @@
 工单 04 的工作区快照、混合变更和原生兼容复测见[工作区报告材料复测记录](review-report-workspace-material-04.md)。
 
 工单 06 的三种模式、不完整结果、原生输出兼容、timeout/budget 截止、安全保存及恢复边界见[不完整审查材料与失败恢复复测记录](review-report-partial-recovery-06.md)（CLI/MCP 与全仓检查通过；目标分支复测和独立审查无阻塞；不支持硬链接的文件系统不会生成报告材料）。
+
+工单 07 的报告材料 CLI、HTML 事实/安全校验和 Edge 离线浏览器复测见[单份中文 HTML 报告复测记录](review-report-html-07.md)（窄屏长报告溢出修复及真实模型验收待完成）。

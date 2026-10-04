@@ -20,3 +20,10 @@ Blocked by: [06：交付不完整审查材料与失败恢复行为](06-partial-r
 - [ ] 显式输出路径和缺省日期名称遵循既定防覆盖规则；失败有诊断与用量，调用有预算边界。有效 JSON 可再次生成 HTML，不触发重审。
 - [ ] 通过 CLI 的受控模型测试及真实浏览器检查验证零问题、四级风险、部分完成和知识缺失样例；核对内容完整性、事实与基本可读性，不固定模型措辞或 DOM 快照。
 
+## 执行记录（2026-10-04）
+
+- 已实现 `ocr report` 单份输入命令、默认/显式输出路径、兼容材料校验、有限模型调用诊断和安全发布；程序校验完整 finding 集合、等级、统计、章节及材料事实，使用同目录临时文件和硬链接排他发布，失败不留下最终文件。
+- `go test ./cmd/opencodereview -run '^TestReportCommand' -count=1 -timeout=75s` 与 `go test ./internal/report -count=1 -timeout=75s` 当前均通过；事实/安全负例覆盖 CSS 转义外联、`ping`、Unix/Windows 路径、people/achievement/status/source 篡改及 CLI 无效输出不落盘。
+- 受控 CLI 产物用 Edge 154.0.4258.53 离线打开，桌面 1440px 和窄屏 375px 均无横向溢出，完整呈现 9 章、60 条可读 finding 和十项统计，无页面错误、外部资源或非本地请求。首轮暴露的长 SHA 换行问题已通过提示词约束及受控响应复跑修复。当前结果与命令见[工单 07 复测记录](../../../project-docs/mock/review-report-html-07.md)。真实 DeepSeek 和真实材料需集成后验收。
+- 全 `cmd/opencodereview` 测试在既有 `TestReviewE2E_ReportTokenBudgetFailureIsNotSuccessAcrossModes` 的 MCP 读取路径超时；工单 07 聚焦测试已单独通过，故障与证据记于复测记录。
+
