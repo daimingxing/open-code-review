@@ -25,4 +25,6 @@ Blocked by: [02：单提交审查生成独立报告材料](02-commit-report-mate
 - 默认报告名称沿用共享 `workspace` 标签和启动时间；未传 `--report` 不采集快照、不改变原生输出路径或退出行为。工作区 `SourceArtifact` 保留原生选择结果，干净工作区以 `provided`、零选中条目表达，不把零条目当作缺失。
 - 已运行：定向 CLI 测试 `go test ./cmd/opencodereview -run 'Test(ParseWorkspaceStatus|ReviewE2E_WorkspaceReport|DefaultReportPathUsesWorkspaceLabel)' -count=1` 通过；全量 `go test ./... -count=1` 通过（25 个包）；`go vet ./...` 通过；`make check` 通过（license、english-check、`go mod tidy`、gofmt、vet）。复测命令见[工作区报告材料复测记录](../../../project-docs/mock/review-report-workspace-material-04.md)。
 - 限制：本机未启用 `make test` 的 race 检查（需要 `CGO_ENABLED=1` 与 GCC）；测试使用仓库内受控模型，不代表真实模型效果。工作区不增加原生恢复能力；运行期间文件变动由启动时快照和工件摘要分别披露，后续报告阶段不重新读取工作区。
+- 独立审查修复：Standards 审查发现 unborn/异常仓库的 `HEAD` 解析错误被忽略，已在 `a266694` 中改为快照采集失败并新增回归测试；复核结论为无阻塞。
+- 主线程复测：修复后聚焦测试 5 个通过，`go test ./... -count=1` 通过（5133 个测试/25 包），`go vet ./...` 和 `make check` 通过。提交前 race 仍受 Windows CGO/GCC 前提限制。
 

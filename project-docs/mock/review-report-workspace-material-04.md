@@ -36,4 +36,4 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 
 ## 验证记录
 
-2026-10-04：定向测试通过；`go test ./... -count=1` 通过（25 个包）；`go vet ./...` 和 `make check` 通过。测试未运行 race 检查，因为本机缺少 `CGO_ENABLED=1` 与 GCC；工作区恢复仍沿用原生不支持的限制。
+2026-10-04：修复 unborn HEAD 快照误报后，定向测试 5 个通过；`go test ./... -count=1` 通过（5133 个测试/25 个包）；`go vet ./...` 和 `make check` 通过。测试未运行 race 检查，因为本机缺少 `CGO_ENABLED=1` 与 GCC；工作区恢复仍沿用原生不支持的限制。修复提交为 `a266694`。
