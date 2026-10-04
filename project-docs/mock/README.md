@@ -52,4 +52,4 @@
 
 工单 04 的工作区快照、混合变更和原生兼容复测见[工作区报告材料复测记录](review-report-workspace-material-04.md)。
 
-工单 06 的三种模式、不完整结果、原生输出兼容、timeout/budget 截止、安全保存及恢复边界见[不完整审查材料与失败恢复复测记录](review-report-partial-recovery-06.md)（CLI/MCP、全仓测试与仓库检查通过；不支持硬链接的文件系统不会生成报告材料；新增提交独立复审待记录）。
+工单 06 的三种模式、不完整结果、原生输出兼容、timeout/budget 截止、安全保存及恢复边界见[不完整审查材料与失败恢复复测记录](review-report-partial-recovery-06.md)（CLI/MCP 与全仓检查通过；目标分支复测和独立审查无阻塞；不支持硬链接的文件系统不会生成报告材料）。
