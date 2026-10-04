@@ -297,6 +297,17 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 			return fmt.Errorf("--report path conflicts with --output path")
 		}
 	}
+	var snapshotCapture []workspaceSnapshotCapture
+	if opts.reportEnabled && reviewModeFromOptions(opts) == session.ReviewModeWorkspace {
+		snapshotCtx, snapshotCancel := context.WithTimeout(ctx, 30*time.Second)
+		snapshot, snapshotErr := collectWorkspaceSnapshot(snapshotCtx, cc.GitRunner, cc.RepoDir, startTime)
+		snapshotCancel()
+		capture := workspaceSnapshotCapture{Snapshot: snapshot}
+		if snapshotErr != nil {
+			capture.Reason = "工作区快照采集失败，无法确认审查启动时的状态" // allow-non-english: report JSON requires Chinese limitation reason
+		}
+		snapshotCapture = []workspaceSnapshotCapture{capture}
+	}
 
 	comments, runErr := ag.Run(runCtx)
 	completedAt := time.Now()
@@ -343,7 +354,7 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	}
 	var materialErr error
 	if opts.reportEnabled {
-		material, buildErr := buildReportMaterial(manifest, cc.RepoDir, resolvedComments, startTime, completedAt, rt.Provider, rt.Model, ag.ToolFailures())
+		material, buildErr := buildReportMaterial(manifest, cc.RepoDir, resolvedComments, startTime, completedAt, rt.Provider, rt.Model, ag.ToolFailures(), cc.GitRunner, snapshotCapture...)
 		if buildErr != nil {
 			materialErr = fmt.Errorf("generate report material: %w", buildErr)
 		} else if _, saveErr := report.WriteMaterial(reportTarget, opts.reportPath == "", material); saveErr != nil {
