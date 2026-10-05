@@ -53,6 +53,27 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 		t.Fatalf("HTML with alternate Chinese headings and labels was rejected: %v", err)
 	}
 
+	withoutStatMarkers := content
+	for _, name := range []string{
+		"finding-count", "risk-critical", "risk-high", "risk-medium", "risk-low",
+		"coverage-selected", "coverage-completed", "coverage-failed", "coverage-skipped", "coverage-reused",
+	} {
+		withoutStatMarkers = strings.Replace(withoutStatMarkers, ` data-stat="`+name+`"`, "", 1)
+	}
+	if err := ValidateHTMLDocument(withoutStatMarkers, material); err != nil {
+		t.Fatalf("visible statistics without optional data-stat markers were rejected: %v", err)
+	}
+	withoutVisibleStat := strings.Replace(content, `<output data-stat="risk-critical">1</output>`, "", 1)
+	if withoutVisibleStat == content {
+		t.Fatal("fixture did not contain the critical-risk statistic")
+	}
+	if strings.Contains(withoutVisibleStat, `data-stat="risk-critical"`) {
+		t.Fatal("fixture retained the critical-risk statistic marker")
+	}
+	if err := ValidateHTMLDocument(withoutVisibleStat, material); err == nil {
+		t.Fatal("ValidateHTMLDocument accepted a missing visible risk statistic")
+	}
+
 	for _, summary := range []struct {
 		tag  string
 		body string
@@ -69,6 +90,28 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 				t.Fatalf("visible Chinese finding summary without a data-fact marker was rejected: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateHTMLDocumentRequiresVisibleRecommendations(t *testing.T) {
+	material := validHTMLMaterial()
+	content := validHTMLDocument(material)
+	providedCode := `<pre data-fact="recommendation_code">` + html.EscapeString(material.Findings[0].Recommendation.Code) + `</pre>`
+	withoutCode := strings.Replace(content, providedCode, "", 1)
+	if withoutCode == content {
+		t.Fatal("fixture did not contain the provided recommendation")
+	}
+	if err := ValidateHTMLDocument(withoutCode, material); err == nil || !strings.Contains(err.Error(), "omits its recommendation") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want missing recommendation diagnostic", err)
+	}
+
+	unavailableReason := `<span data-fact="recommendation_reason">` + html.EscapeString(material.Findings[1].Recommendation.Reason) + `</span>`
+	withoutReason := strings.Replace(content, unavailableReason, "", 1)
+	if withoutReason == content {
+		t.Fatal("fixture did not contain the unavailable recommendation reason")
+	}
+	if err := ValidateHTMLDocument(withoutReason, material); err == nil || !strings.Contains(err.Error(), "omits its recommendation") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want missing recommendation reason diagnostic", err)
 	}
 }
 
