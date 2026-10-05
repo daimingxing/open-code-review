@@ -529,7 +529,7 @@ func hasClass(node *html.Node, class string) bool {
 	return false
 }
 
-func validateHTMLStats(stats map[string]*html.Node, material Material, qualityCoverage *html.Node) (map[*html.Node]string, error) {
+func validateHTMLStats(stats map[string]*html.Node, material Material, qualityCoverage *html.Node) (map[*html.Node]map[int]string, error) {
 	expected := htmlStatisticCounts(material)
 	for name, node := range stats {
 		count, ok := expected[name]
@@ -553,76 +553,16 @@ func validateHTMLStats(stats map[string]*html.Node, material Material, qualityCo
 }
 
 type htmlStatisticValue struct {
+	node     *html.Node
+	value    string
+	position int
+	end      int
+}
+
+type htmlStatisticTextSpan struct {
 	node  *html.Node
-	value string
-}
-
-func markerlessHTMLStatisticValues(qualityCoverage *html.Node, stats map[string]*html.Node, expected map[string]int) (map[*html.Node]string, map[string]struct{}, error) {
-	values := make(map[*html.Node]string)
-	names := make(map[string]struct{})
-	var occurrences []htmlStatisticValue
-	collectHTMLStatisticContext(qualityCoverage, &occurrences, nil)
-	for _, occurrence := range occurrences {
-		for group := occurrence.node.Parent; group != nil && group != qualityCoverage; group = group.Parent {
-			if group.Type != html.ElementNode {
-				continue
-			}
-			var groupValues []htmlStatisticValue
-			var text strings.Builder
-			collectHTMLStatisticContext(group, &groupValues, &text)
-			if len(groupValues) != 1 || groupValues[0].node != occurrence.node || groupValues[0].value != occurrence.value {
-				continue
-			}
-			labels := htmlStatisticLabelsInText(text.String())
-			if len(labels) != 1 {
-				continue
-			}
-			for name := range labels {
-				if occurrence.value != strconv.Itoa(expected[name]) {
-					return nil, nil, fmt.Errorf("HTML statistic %q does not match the report material", name)
-				}
-				values[occurrence.node] = occurrence.value
-				names[name] = struct{}{}
-			}
-			break
-		}
-	}
-	for name := range stats {
-		delete(names, name)
-	}
-	return values, names, nil
-}
-
-func collectHTMLStatisticContext(node *html.Node, values *[]htmlStatisticValue, text *strings.Builder) {
-	if node.Type == html.ElementNode && (attribute(node, "data-fact") != "" || attribute(node, "data-stat") != "") {
-		return
-	}
-	if node.Type == html.TextNode {
-		if text != nil {
-			text.WriteByte(' ')
-			text.WriteString(node.Data)
-		}
-		for _, value := range numericClaim.FindAllString(node.Data, -1) {
-			*values = append(*values, htmlStatisticValue{node: node, value: value})
-		}
-		return
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		collectHTMLStatisticContext(child, values, text)
-	}
-}
-
-var htmlStatisticLabelAliases = map[string][]string{
-	"finding-count":      {"findings", "finding", "issues", "issue", "defects", "defect", "problems", "problem", "\u95ee\u9898\u603b\u6570", "\u7f3a\u9677\u603b\u6570", "\u95ee\u9898\u6570", "\u7f3a\u9677\u6570", "\u53d1\u73b0\u6570"},
-	"risk-critical":      {"critical", "blocker", "\u4e25\u91cd", "\u81f4\u547d", "\u6781\u9ad8"},
-	"risk-high":          {"high", "\u9ad8\u98ce\u9669", "\u9ad8\u5371", "\u9ad8"},
-	"risk-medium":        {"medium", "moderate", "\u4e2d\u7b49", "\u4e2d\u98ce\u9669", "\u4e2d\u5371", "\u4e2d"},
-	"risk-low":           {"low", "minor", "\u4f4e\u98ce\u9669", "\u4f4e\u5371", "\u4f4e"},
-	"coverage-selected":  {"selected", "planned", "in scope", "\u9009\u4e2d", "\u9009\u62e9", "\u8ba1\u5212", "\u7eb3\u5165", "\u5e94\u68c0\u67e5", "\u68c0\u67e5\u8303\u56f4"},
-	"coverage-completed": {"completed", "complete", "checked", "executed", "\u5df2\u5b8c\u6210", "\u5b8c\u6210", "\u5df2\u6267\u884c", "\u5df2\u68c0\u67e5"},
-	"coverage-failed":    {"failed", "failure", "errors", "error", "\u5931\u8d25", "\u672a\u901a\u8fc7", "\u9519\u8bef"},
-	"coverage-skipped":   {"skipped", "waived", "excluded", "not run", "\u8df3\u8fc7", "\u8c41\u514d", "\u6392\u9664", "\u672a\u6267\u884c", "\u672a\u68c0\u67e5"},
-	"coverage-reused":    {"reused", "re-use", "cached", "cache hit", "\u590d\u7528", "\u91cd\u7528", "\u7f13\u5b58\u547d\u4e2d", "\u5df2\u7f13\u5b58"},
+	start int
+	end   int
 }
 
 type htmlStatisticLabelMatch struct {
@@ -631,7 +571,129 @@ type htmlStatisticLabelMatch struct {
 	end   int
 }
 
-func htmlStatisticLabelsInText(value string) map[string]struct{} {
+type htmlStatisticToken struct {
+	start int
+	end   int
+	label *htmlStatisticLabelMatch
+	value *htmlStatisticValue
+}
+
+func markerlessHTMLStatisticValues(qualityCoverage *html.Node, stats map[string]*html.Node, expected map[string]int) (map[*html.Node]map[int]string, map[string]struct{}, error) {
+	values := make(map[*html.Node]map[int]string)
+	names := make(map[string]struct{})
+	var text strings.Builder
+	var spans []htmlStatisticTextSpan
+	collectHTMLStatisticText(qualityCoverage, &text, &spans)
+	content := text.String()
+	var tokens []htmlStatisticToken
+	for _, label := range htmlStatisticLabelMatches(content) {
+		match := label
+		tokens = append(tokens, htmlStatisticToken{start: label.start, end: label.end, label: &match})
+	}
+	for _, span := range spans {
+		for _, location := range numericClaim.FindAllStringIndex(content[span.start:span.end], -1) {
+			start, end := span.start+location[0], span.start+location[1]
+			match := htmlStatisticValue{
+				node: span.node, value: content[start:end], position: start - span.start, end: end,
+			}
+			value := match
+			tokens = append(tokens, htmlStatisticToken{start: start, end: end, value: &value})
+		}
+	}
+	sort.Slice(tokens, func(i, j int) bool { return tokens[i].start < tokens[j].start })
+	var pendingLabel *htmlStatisticLabelMatch
+	var pendingValue *htmlStatisticValue
+	for _, token := range tokens {
+		if token.label != nil {
+			if pendingValue != nil && nearbyStatisticSeparators(content[pendingValue.end:token.start]) {
+				if err := recordHTMLStatisticValue(values, names, stats, expected, *token.label, *pendingValue); err != nil {
+					return nil, nil, err
+				}
+				pendingValue = nil
+				pendingLabel = nil
+				continue
+			}
+			pendingValue = nil
+			pendingLabel = token.label
+			continue
+		}
+		if token.value == nil {
+			continue
+		}
+		if pendingLabel != nil && nearbyStatisticSeparators(content[pendingLabel.end:token.start]) {
+			if err := recordHTMLStatisticValue(values, names, stats, expected, *pendingLabel, *token.value); err != nil {
+				return nil, nil, err
+			}
+			pendingLabel = nil
+			pendingValue = nil
+			continue
+		}
+		pendingLabel = nil
+		pendingValue = token.value
+	}
+	for name := range stats {
+		delete(names, name)
+	}
+	return values, names, nil
+}
+
+func recordHTMLStatisticValue(values map[*html.Node]map[int]string, names map[string]struct{}, stats map[string]*html.Node, expected map[string]int, label htmlStatisticLabelMatch, value htmlStatisticValue) error {
+	if value.value != strconv.Itoa(expected[label.name]) {
+		return fmt.Errorf("HTML statistic %q does not match the report material", label.name)
+	}
+	if _, exists := names[label.name]; exists && stats[label.name] == nil {
+		return fmt.Errorf("HTML quality statistics duplicate %q", label.name)
+	}
+	names[label.name] = struct{}{}
+	if values[value.node] == nil {
+		values[value.node] = make(map[int]string)
+	}
+	values[value.node][value.position] = value.value
+	return nil
+}
+
+func collectHTMLStatisticText(node *html.Node, text *strings.Builder, spans *[]htmlStatisticTextSpan) {
+	if node.Type == html.ElementNode && (attribute(node, "data-fact") != "" || attribute(node, "data-stat") != "") {
+		return
+	}
+	if node.Type == html.TextNode {
+		text.WriteByte(' ')
+		start := text.Len()
+		text.WriteString(node.Data)
+		*spans = append(*spans, htmlStatisticTextSpan{node: node, start: start, end: text.Len()})
+		return
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		collectHTMLStatisticText(child, text, spans)
+	}
+}
+
+func nearbyStatisticSeparators(value string) bool {
+	if len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if !unicode.IsSpace(char) && !unicode.IsPunct(char) && !unicode.IsSymbol(char) {
+			return false
+		}
+	}
+	return true
+}
+
+var htmlStatisticLabelAliases = map[string][]string{
+	"finding-count":      {"findings", "finding", "issues", "issue", "defects", "defect", "problems", "problem", "total findings", "total issues", "finding count", "issue count", "\u95ee\u9898\u5408\u8ba1", "\u95ee\u9898\u603b\u6570", "\u95ee\u9898\u603b\u8ba1", "\u7f3a\u9677\u5408\u8ba1", "\u7f3a\u9677\u603b\u6570", "\u7f3a\u9677\u6570\u91cf", "\u95ee\u9898\u6570", "\u7f3a\u9677\u6570", "\u53d1\u73b0\u6570", "\u603b\u95ee\u9898\u6570"},
+	"risk-critical":      {"critical", "blocker", "critical findings", "critical issues", "critical risk", "critical severity", "\u4e25\u91cd", "\u4e25\u91cd\u95ee\u9898", "\u81f4\u547d", "\u81f4\u547d\u95ee\u9898", "\u963b\u65ad", "\u963b\u585e", "\u6781\u9ad8"},
+	"risk-high":          {"high", "high risk", "high findings", "high issues", "high severity", "\u9ad8\u98ce\u9669", "\u9ad8\u5371", "\u9ad8\u7ea7\u522b", "\u9ad8\u4e25\u91cd\u5ea6", "\u9ad8"},
+	"risk-medium":        {"medium", "moderate", "medium risk", "medium findings", "medium issues", "medium severity", "\u4e2d\u7b49", "\u4e2d\u98ce\u9669", "\u4e2d\u5371", "\u4e2d\u7ea7\u522b", "\u4e2d\u4e25\u91cd\u5ea6", "\u4e2d"},
+	"risk-low":           {"low", "minor", "low risk", "low findings", "low issues", "low severity", "\u4f4e\u98ce\u9669", "\u4f4e\u5371", "\u4f4e\u7ea7\u522b", "\u4f4e\u4e25\u91cd\u5ea6", "\u4f4e"},
+	"coverage-selected":  {"selected", "selected checks", "selected tests", "planned", "planned checks", "in scope", "\u9009\u4e2d", "\u9009\u62e9", "\u5df2\u9009", "\u5df2\u9009\u62e9", "\u8ba1\u5212", "\u7eb3\u5165\u68c0\u67e5", "\u7eb3\u5165", "\u5e94\u68c0\u67e5", "\u68c0\u67e5\u8303\u56f4"},
+	"coverage-completed": {"completed", "completed checks", "completed tests", "complete", "checked", "executed", "\u5df2\u5b8c\u6210", "\u5b8c\u6210", "\u5df2\u6267\u884c", "\u5df2\u68c0\u67e5", "\u5df2\u5ba1\u67e5"},
+	"coverage-failed":    {"failed", "failed checks", "failed tests", "failure", "errors", "error", "\u5931\u8d25", "\u672a\u901a\u8fc7", "\u9519\u8bef"},
+	"coverage-skipped":   {"skipped", "skipped checks", "skipped tests", "waived", "excluded", "not run", "\u8df3\u8fc7", "\u8c41\u514d", "\u6392\u9664", "\u672a\u6267\u884c", "\u672a\u68c0\u67e5"},
+	"coverage-reused":    {"reused", "reused checks", "reused tests", "re-use", "cached", "cache hit", "\u590d\u7528", "\u91cd\u7528", "\u7f13\u5b58\u547d\u4e2d", "\u5df2\u7f13\u5b58"},
+}
+
+func htmlStatisticLabelMatches(value string) []htmlStatisticLabelMatch {
 	value = strings.ToLower(value)
 	var matches []htmlStatisticLabelMatch
 	for name, aliases := range htmlStatisticLabelAliases {
@@ -650,29 +712,45 @@ func htmlStatisticLabelsInText(value string) map[string]struct{} {
 			}
 		}
 	}
-	labels := make(map[string]struct{})
-	for _, match := range matches {
-		shadowed := false
-		for _, other := range matches {
-			if other.name != match.name && other.end-other.start > match.end-match.start && other.start < match.end && match.start < other.end {
-				shadowed = true
-				break
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].start != matches[j].start {
+			return matches[i].start < matches[j].start
+		}
+		if matches[i].end != matches[j].end {
+			return matches[i].end > matches[j].end
+		}
+		return matches[i].name < matches[j].name
+	})
+	filtered := matches[:0]
+	coveredEnd := -1
+	for index := 0; index < len(matches); {
+		start := matches[index].start
+		end := matches[index].end
+		groupEnd := index
+		for groupEnd < len(matches) && matches[groupEnd].start == start {
+			if matches[groupEnd].end > end {
+				end = matches[groupEnd].end
 			}
+			groupEnd++
 		}
-		if !shadowed {
-			labels[match.name] = struct{}{}
+		if start >= coveredEnd {
+			seenNames := make(map[string]struct{})
+			for groupIndex := index; groupIndex < groupEnd; groupIndex++ {
+				match := matches[groupIndex]
+				if match.end != end {
+					continue
+				}
+				if _, seen := seenNames[match.name]; seen {
+					continue
+				}
+				seenNames[match.name] = struct{}{}
+				filtered = append(filtered, match)
+			}
+			coveredEnd = end
 		}
+		index = groupEnd
 	}
-	if _, hasRisk := labels["risk-critical"]; hasRisk {
-		delete(labels, "finding-count")
-	}
-	for _, severity := range []string{"risk-high", "risk-medium", "risk-low"} {
-		if _, hasRisk := labels[severity]; hasRisk {
-			delete(labels, "finding-count")
-			break
-		}
-	}
-	return labels
+	return filtered
 }
 
 func statisticAliasBoundary(value string, start, end int, alias string) bool {
@@ -750,7 +828,7 @@ func hasVisibleSectionContent(section *html.Node) bool {
 	return found
 }
 
-func validateHTMLClaims(bodyNode *html.Node, material Material, statisticValues map[*html.Node]string) error {
+func validateHTMLClaims(bodyNode *html.Node, material Material, statisticValues map[*html.Node]map[int]string) error {
 	facts, err := materialHTMLFacts(material)
 	if err != nil {
 		return err
@@ -809,8 +887,9 @@ func validateHTMLClaims(bodyNode *html.Node, material Material, statisticValues 
 					return fmt.Errorf("HTML body contains report text outside main")
 				}
 				if !insideFinding(node) {
-					for _, number := range numericClaim.FindAllString(value, -1) {
-						if statisticValue, statistic := statisticValues[node]; statistic && number == statisticValue {
+					for _, location := range numericClaim.FindAllStringIndex(value, -1) {
+						number := value[location[0]:location[1]]
+						if statisticValue, statistic := statisticValues[node][location[0]]; statistic && number == statisticValue {
 							continue
 						}
 						if _, exists := knownNumbers[number]; !exists {

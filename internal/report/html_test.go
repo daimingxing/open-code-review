@@ -125,6 +125,32 @@ func TestValidateHTMLDocumentRequiresSemanticLabelsForMarkerlessStatistics(t *te
 			t.Fatalf("ValidateHTMLDocument rejected a statistic label and value in one text node: %v", err)
 		}
 	})
+	t.Run("natural Chinese synonym", func(t *testing.T) {
+		synonym := strings.Replace(content, "<span>Total findings</span><strong>3</strong>", "<span>问题合计</span><strong>3</strong>", 1)
+		if synonym == content {
+			t.Fatal("fixture did not contain the finding-count statistic")
+		}
+		if err := ValidateHTMLDocument(synonym, material); err != nil {
+			t.Fatalf("ValidateHTMLDocument rejected a natural Chinese statistic synonym: %v", err)
+		}
+	})
+	t.Run("description list labels and values", func(t *testing.T) {
+		descriptionList := markerlessHTMLDescriptionStatistics(validHTMLDocument(material), material, map[string]string{
+			"finding-count":      "问题合计",
+			"risk-critical":      "严重",
+			"risk-high":          "高风险",
+			"risk-medium":        "中风险",
+			"risk-low":           "低风险",
+			"coverage-selected":  "纳入检查",
+			"coverage-completed": "已完成",
+			"coverage-failed":    "失败",
+			"coverage-skipped":   "跳过",
+			"coverage-reused":    "复用",
+		})
+		if err := ValidateHTMLDocument(descriptionList, material); err != nil {
+			t.Fatalf("ValidateHTMLDocument rejected statistics in a description list: %v", err)
+		}
+	})
 
 	t.Run("swapped severity values", func(t *testing.T) {
 		swapped := strings.Replace(content, "<span>\u4e2d\u98ce\u9669</span><strong>1</strong>", "<span>\u4e2d\u98ce\u9669</span><strong>0</strong>", 1)
@@ -467,6 +493,19 @@ func markerlessHTMLStatistics(document string, material Material, labels map[str
 		document = strings.Replace(document, marked, unmarked, 1)
 	}
 	return document
+}
+
+func markerlessHTMLDescriptionStatistics(document string, material Material, labels map[string]string) string {
+	var marked, descriptionList strings.Builder
+	for _, name := range []string{
+		"finding-count", "risk-critical", "risk-high", "risk-medium", "risk-low",
+		"coverage-selected", "coverage-completed", "coverage-failed", "coverage-skipped", "coverage-reused",
+	} {
+		count := htmlStatisticCounts(material)[name]
+		fmt.Fprintf(&marked, `<output data-stat="%s">%d</output>`, name, count)
+		fmt.Fprintf(&descriptionList, `<dt>%s</dt><dd>%d</dd>`, labels[name], count)
+	}
+	return strings.Replace(document, marked.String(), `<dl>`+descriptionList.String()+`</dl>`, 1)
 }
 
 func appendMaterialFacts(builder *strings.Builder, facts map[string]string, section string) {
