@@ -259,7 +259,7 @@ func ValidateHTMLDocument(document string, material Material) error {
 	if err := validateHTMLFindings(findings, material, sections["finding-details"]); err != nil {
 		return err
 	}
-	if err := validateHTMLStats(stats, material); err != nil {
+	if err := validateHTMLStats(stats, material, sections["quality-coverage"]); err != nil {
 		return err
 	}
 	return validateHTMLClaims(bodyNode, material)
@@ -389,6 +389,13 @@ func validateHTMLFindings(nodes map[string]*html.Node, material Material, findin
 		if value := normalizedHTMLText(evidenceValue); value != "" && !strings.Contains(visibleText, value) {
 			return fmt.Errorf("HTML finding %q omits its evidence", finding.ID)
 		}
+		recommendationValue := finding.Recommendation.Code
+		if finding.Recommendation.Status != StatusProvided {
+			recommendationValue = finding.Recommendation.Reason
+		}
+		if value := normalizedHTMLText(recommendationValue); value != "" && !strings.Contains(visibleText, value) {
+			return fmt.Errorf("HTML finding %q omits its recommendation", finding.ID)
+		}
 		for name, matches := range findAllDataFacts(node) {
 			expected, exists := expectedFacts[name]
 			if !exists {
@@ -502,31 +509,65 @@ func hasClass(node *html.Node, class string) bool {
 	return false
 }
 
-func validateHTMLStats(stats map[string]*html.Node, material Material) error {
-	expected := map[string]int{
+func validateHTMLStats(stats map[string]*html.Node, material Material, qualityCoverage *html.Node) error {
+	expected := htmlStatisticCounts(material)
+	for name, node := range stats {
+		count, ok := expected[name]
+		if !ok || strings.TrimSpace(nodeText(node)) != strconv.Itoa(count) || !insideMain(node) {
+			return fmt.Errorf("HTML statistic %q does not match the report material", name)
+		}
+	}
+	visibleValues := make(map[string]int)
+	var collectVisibleValues func(*html.Node)
+	collectVisibleValues = func(node *html.Node) {
+		if node.Type == html.ElementNode && (attribute(node, "data-fact") != "" || hasClass(node, "fact-label")) {
+			return
+		}
+		if node.Type == html.TextNode {
+			for _, value := range numericClaim.FindAllString(node.Data, -1) {
+				visibleValues[value]++
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			collectVisibleValues(child)
+		}
+	}
+	collectVisibleValues(qualityCoverage)
+	// 先扣除带有效标记的可见统计，再为没有标记的项目逐项寻找可见数值。
+	for name, count := range expected {
+		if node, marked := stats[name]; marked && hasAncestor(node, qualityCoverage) {
+			visibleValues[strconv.Itoa(count)]--
+		}
+	}
+	for name, count := range expected {
+		if node, marked := stats[name]; marked && hasAncestor(node, qualityCoverage) {
+			continue
+		}
+		value := strconv.Itoa(count)
+		if visibleValues[value] < 1 {
+			return fmt.Errorf("HTML quality statistics omit material value %q", value)
+		}
+		visibleValues[value]--
+	}
+	return nil
+}
+
+func htmlStatisticCounts(material Material) map[string]int {
+	counts := map[string]int{
 		"finding-count":     len(material.Findings),
 		"coverage-selected": len(material.Coverage.Selected), "coverage-completed": len(material.Coverage.Completed),
 		"coverage-failed": len(material.Coverage.Failed), "coverage-skipped": len(material.Coverage.Waived),
 		"coverage-reused": len(material.Coverage.Reused),
 	}
 	for _, severity := range []string{"critical", "high", "medium", "low"} {
-		expected["risk-"+severity] = 0
+		counts["risk-"+severity] = 0
 	}
 	for _, finding := range material.Findings {
 		if finding.SeverityStatus == StatusProvided {
-			expected["risk-"+finding.Severity]++
+			counts["risk-"+finding.Severity]++
 		}
 	}
-	if len(stats) != len(expected) {
-		return fmt.Errorf("HTML report contains %d statistics; expected %d", len(stats), len(expected))
-	}
-	for name, count := range expected {
-		node, ok := stats[name]
-		if !ok || strings.TrimSpace(nodeText(node)) != strconv.Itoa(count) || !insideMain(node) {
-			return fmt.Errorf("HTML statistic %q does not match the report material", name)
-		}
-	}
-	return nil
+	return counts
 }
 
 func validateSectionHeading(section *html.Node, name string) error {
@@ -583,6 +624,9 @@ func validateHTMLClaims(bodyNode *html.Node, material Material) error {
 		for _, number := range numericClaim.FindAllString(value, -1) {
 			knownNumbers[number] = struct{}{}
 		}
+	}
+	for _, count := range htmlStatisticCounts(material) {
+		knownNumbers[strconv.Itoa(count)] = struct{}{}
 	}
 	var visit func(*html.Node) error
 	visit = func(node *html.Node) error {
