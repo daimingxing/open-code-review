@@ -51,7 +51,7 @@ $env:NODE_PATH = 'C:\Users\60429\.cache\codex-runtimes\codex-primary-runtime\dep
 $node = 'C:\Users\60429\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 $env:OCR_REPORT_BROWSER_ROOT = $tempRoot
 $env:OCR_EDGE_PATH = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-& $node ./project-docs/mock/review-report-experience-09.cjs
+& $node ./project-docs/retests/html-report/verify-browser-report.cjs
 if ($LASTEXITCODE -ne 0) { throw 'Edge 交互/打印复测失败' }
 Get-Item (Join-Path $tempRoot 'browser-summary.json') | Select-Object FullName,Length
 ```

@@ -8,7 +8,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'Run this acceptance script with PowerShell 7.'
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $frontendRepo = 'D:\WorkPlace\longruan_codeReview\jk_web'
 $backendRepo = 'D:\WorkPlace\longruan_codeReview\jk'
 $sourceConfigPath = Join-Path $env:USERPROFILE '.opencodereview/config.json'
@@ -65,14 +65,14 @@ function Invoke-KnowledgeReview(
     [string] $Background,
     [int] $TokenBudget
 ) {
-    $rulePath = Join-Path $runRoot "$RuleName.json"
+    $rulePath = Join-Path $runRoot "$Name-rule.json"
     $backgroundPath = Join-Path $runRoot "$Name-background.md"
     $nativePath = Join-Path $resultDirectory "$Name-native.json"
     $materialPath = Join-Path $resultDirectory "$Name-report.json"
     $logPath = Join-Path $resultDirectory "$Name.log"
-    Copy-Item -LiteralPath (Join-Path $repoRoot "project-docs/mock/$RuleName.json") -Destination $rulePath
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "$RuleName.json") -Destination $rulePath
     Set-Content -LiteralPath $backgroundPath -Encoding utf8 -Value $Background
-    Set-KnowledgeRoot $KnowledgeRoot (Join-Path $repoRoot "project-docs/mock/$ConfigName.json")
+    Set-KnowledgeRoot $KnowledgeRoot (Join-Path $PSScriptRoot "$ConfigName.json")
 
     & $exe review --repo $Repository --commit $Commit --rule $rulePath --background-file $backgroundPath `
         --provider deepseek --model deepseek-flash --audience agent --format json `
@@ -190,9 +190,9 @@ try {
     $frontendBackground = '审查目标：fd4fdae1。仅按目标提交范围判断。核对 EiBlock.getMappedRows 是否受当前 @eplat/ei 版本支持，并排除知识已证明可用且代码已做空值保护的误报；同时检查变更中的真实并发状态问题。知识必须通过规则指定的独立知识目录读取。' # allow-non-english: 模型测试背景沿用工单中文验收要求
     $backendBackground = '审查目标：ab9d7dc1。仅按目标提交范围判断。重点核对 XLocalManager.call 包装中的成功状态判断，严格依据独立知识目录中的服务调用章节，不从常识推断状态语义；读取失败或正文不完整时如实说明。' # allow-non-english: 模型测试背景沿用工单中文验收要求
     Invoke-KnowledgeReview 'frontend' $frontendRepo $frontendKnowledge 'fd4fdae1' `
-        'external-knowledge-01-rule.frontend' 'external-knowledge-01-config.frontend' $frontendBackground 150000
+        'rules/frontend' 'configs/frontend' $frontendBackground 150000
     Invoke-KnowledgeReview 'backend' $backendRepo $backendKnowledge 'ab9d7dc1' `
-        'external-knowledge-01-rule.backend' 'external-knowledge-01-config.backend' $backendBackground 180000
+        'rules/backend' 'configs/backend' $backendBackground 180000
 }
 finally {
     $env:USERPROFILE = $oldUserProfile

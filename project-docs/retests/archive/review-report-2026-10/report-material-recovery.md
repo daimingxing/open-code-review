@@ -55,4 +55,4 @@ $make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
 
 本记录的 CLI E2E 使用可控本地模型故障，不替代真实模型效果验收。模型超时由本地 HTTP 服务对 `b.go` 主审查请求延迟 1.5 秒并设置 `OCR_LLM_TIMEOUT=1` 驱动；预算耗尽通过 CLI `--max-tokens-budget 1` 驱动，未依赖共享 native 单元测试推断材料行为。报告保存依赖同目录硬链接来原子发布；不支持硬链接的文件系统会返回错误且不生成报告材料，常见 NTFS 与其他支持硬链接的文件系统行为不变。
 
-人工重放 commit/range/workspace 的真实服务路径仍需主机上已授权的 OCR 模型与知识服务配置；按 [工单 01 复测记录](external-knowledge-01.md) 准备并隔离服务。模型与知识凭据不应写入命令文件或报告材料。
+人工重放 commit/range/workspace 的真实服务路径仍需主机上已授权的 OCR 模型与知识服务配置；按[外部知识历史复测记录](knowledge-access.md)准备并隔离服务。模型与知识凭据不应写入命令文件或报告材料。

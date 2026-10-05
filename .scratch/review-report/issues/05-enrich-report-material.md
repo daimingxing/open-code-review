@@ -25,5 +25,5 @@ Blocked by: [02：单提交审查生成独立报告材料](02-commit-report-mate
 - 单提交材料用 `git show` 获取提交元数据；文件清单和补丁依据实际运行的 root `git diff-tree` 或 first-parent `git diff`/`git show` 命令，并将完整命令写入 `evidence`。模型成果归纳只接收有界 Git diff、提交及文件事实，不接收问题列表、需求或知识正文；模型输出路径与模块须匹配 Git 事实。模型失败或输出越界时保留 Git 事实并标失败，空提交跳过模型。
 - 知识来源只观察 MCP 的 `read_text_file`、`read_multiple_files` 实际响应；目录/搜索工具不作为正文版本。材料只写来源授权根下的相对标识、范围、状态、返回字节数和原始 MCP 响应的 SHA-256，不保存响应正文。远端或无法映射来源的读取保留摘要并标 `source_unknown`；受限请求标 `partial`；MCP `IsError`、调用错误、配置知识工具不可用和服务启动失败记为失败；非知识 MCP 服务失败不归因到知识来源。批量读取身份保留请求路径顺序，顺序不同的调用作为不同来源身份，不推断同一正文发生版本变化。同一来源同次返回不同摘要时披露版本变化。`application_status` 仍为 `not_observed`，不代表已证明模型正确应用知识。
 - 非提交模式成果与人员不推断；结构检查仍未提供；无 `--report` 时不启用观察器，不改变原生调用行为。报告记录 Git 采集时间与模型摘要耗时、token 用量和失败限制。
-- 最终验证命令与结果详见[成果、人员和知识来源复测记录](../../../project-docs/mock/review-report-enrichment-05.md)：聚焦测试 exit 0；`go test ./...` 为 25/25 包通过；`make check` exit 0（license、english-check 665 个源文件、tidy、gofmt、vet）。race 未运行；本机 Windows 缺少 CGO/GCC 前提。实现与测试完成，独立复审无阻塞通过，待提交和集成。
+- 最终验证命令与结果详见[历史记录](../../../project-docs/retests/archive/review-report-2026-10/report-material-enrichment.md)及[当前复测入口](../../../project-docs/retests/report-material/README.md)：聚焦测试 exit 0；`go test ./...` 为 25/25 包通过；`make check` exit 0（license、english-check 665 个源文件、tidy、gofmt、vet）。race 未运行；本机 Windows 缺少 CGO/GCC 前提。实现与测试完成，独立复审无阻塞通过，待提交和集成。
 

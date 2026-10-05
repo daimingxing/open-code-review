@@ -2,11 +2,11 @@
 
 ## 目的与前提
 
-此场景核验原生 OCR 规则是否关联独立知识索引、背景是否仍由原生 `--background-file` 接收、文件 MCP 是否限制在授权知识目录和只读工具，以及真实模型是否按知识证据判断目标提交。真实样例来自[资源索引](../review-resources.md)，样例仓库与 `.ai_knowledge` 可能有用户未提交内容；复测只能读取，不要清理、切换或覆盖它们。
+此场景核验原生 OCR 规则是否关联独立知识索引、背景是否仍由原生 `--background-file` 接收、文件 MCP 是否限制在授权知识目录和只读工具，以及真实模型是否按知识证据判断目标提交。真实样例来自[资源索引](../../../review-resources.md)，样例仓库与 `.ai_knowledge` 可能有用户未提交内容；复测只能读取，不要清理、切换或覆盖它们。
 
 最近执行日期：2026-10-04。实测环境为 Windows 11、PowerShell 7、OCR v1.12.11（a758d9c）、Node.js v22.22.2、`@modelcontextprotocol/server-filesystem` 2026.8.31、DeepSeek `deepseek-flash`。真实模型测试使用样例仓库提交 `fd4fdae1dda41b4a6ad7193218d2585500307349` 与 `ab9d7dc11cc72f6413974992882aa25f8779d9a6`。重新运行前应确认资源索引中的路径和目标提交仍存在，并从自身授权模型配置取得服务凭据；不要把凭据写进仓库或终端输出。
 
-配置模板 [`external-knowledge-01-config.frontend.json`](external-knowledge-01-config.frontend.json) 和 [`external-knowledge-01-config.backend.json`](external-knowledge-01-config.backend.json) 仅包含 MCP 覆盖段，不含凭据。下方 PS7 流程从当前用户的 OCR 配置安全读取既有模型配置，在内存中解析并保留 provider credential，仅将完整配置序列化到当前用户 ACL 保护的唯一系统临时目录；不打印凭据，不复制到仓库或其他长期配置，不修改来源配置。OCR CLI 运行时必须能从临时配置文件读取 provider credential，因此该短期隔离文件是运行所需的临时副本；脚本用 `finally` 精确删除本次创建的临时目录。若你的 OCR 使用自定义配置位置，只需调整 `$sourceConfigPath`。白名单限定为 `read_text_file`、`list_directory`、`search_files`、`get_file_info`、`list_allowed_directories`；filesystem 服务自身还会列出写工具，OCR 配置白名单必须阻止模型调用它们。
+配置模板 [`frontend.json`](../../knowledge-access/configs/frontend.json) 和 [`backend.json`](../../knowledge-access/configs/backend.json) 仅包含 MCP 覆盖段，不含凭据。下方 PS7 流程从当前用户的 OCR 配置安全读取既有模型配置，在内存中解析并保留 provider credential，仅将完整配置序列化到当前用户 ACL 保护的唯一系统临时目录；不打印凭据，不复制到仓库或其他长期配置，不修改来源配置。OCR CLI 运行时必须能从临时配置文件读取 provider credential，因此该短期隔离文件是运行所需的临时副本；脚本用 `finally` 精确删除本次创建的临时目录。若你的 OCR 使用自定义配置位置，只需调整 `$sourceConfigPath`。白名单限定为 `read_text_file`、`list_directory`、`search_files`、`get_file_info`、`list_allowed_directories`；filesystem 服务自身还会列出写工具，OCR 配置白名单必须阻止模型调用它们。
 
 ## 隔离准备与真实模型命令
 
@@ -30,8 +30,8 @@ $frontendKnowledge = Join-Path $repoFrontend '.ai_knowledge'
 $backendKnowledge = Join-Path $repoBackend '.ai_knowledge'
 $frontendRule = Join-Path $testRoot 'rule.frontend.json'
 $backendRule = Join-Path $testRoot 'rule.backend.json'
-$frontendConfigTemplate = Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-config.frontend.json'
-$backendConfigTemplate = Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-config.backend.json'
+$frontendConfigTemplate = Join-Path $repoRoot 'project-docs/retests/knowledge-access/configs/frontend.json'
+$backendConfigTemplate = Join-Path $repoRoot 'project-docs/retests/knowledge-access/configs/backend.json'
 $frontendBackground = Join-Path $testRoot 'background.frontend.md'
 $backendBackground = Join-Path $testRoot 'background.backend.md'
 $oldUserProfile = $env:USERPROFILE
@@ -65,8 +65,8 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
     $node = (Get-Command node -ErrorAction Stop).Source
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-rule.frontend.json') $frontendRule
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-rule.backend.json') $backendRule
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'project-docs/retests/knowledge-access/rules/frontend.json') $frontendRule
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'project-docs/retests/knowledge-access/rules/backend.json') $backendRule
     Set-Content -LiteralPath $frontendBackground -Encoding utf8 -Value @'
 审查目标：fd4fdae1。仅按目标提交范围判断。核对 EiBlock.getMappedRows 是否受当前 @eplat/ei 版本支持，并排除知识已证明可用且代码已做空值保护的误报；同时检查变更中的真实并发状态问题。知识必须通过规则指定的独立知识目录读取。
 '@
@@ -115,15 +115,15 @@ finally {
 }
 ```
 
-前端规则样例：[`external-knowledge-01-rule.frontend.json`](external-knowledge-01-rule.frontend.json)。规则路径关联 `.ai_knowledge/xr-framework-usage.md`，要求先读索引并按需读章节，核实 `@eplat/ei` 版本和 `EiBlock.getMappedRows`。原生背景文件提供审查焦点；期望模型引用 `eplatei-knowledge.md` 与 `02-eiblock.md`、版本 `@eplat/ei 2.2.1`，排除已受支持且有空值保护的 API 误报，并能结合当前差异发现实际问题。
+前端规则样例：[`frontend.json`](../../knowledge-access/rules/frontend.json)。规则路径关联 `.ai_knowledge/xr-framework-usage.md`，要求先读索引并按需读章节，核实 `@eplat/ei` 版本和 `EiBlock.getMappedRows`。原生背景文件提供审查焦点；期望模型引用 `eplatei-knowledge.md` 与 `02-eiblock.md`、版本 `@eplat/ei 2.2.1`，排除已受支持且有空值保护的 API 误报，并能结合当前差异发现实际问题。
 
-后端规则样例：[`external-knowledge-01-rule.backend.json`](external-knowledge-01-rule.backend.json)。规则路径关联 `.ai_knowledge/02-服务调用.md`，要求精确比较负状态约定与 `STATUS_FAILURE` 等值判断。原生背景文件限定核验范围；期望模型实际读取索引/章节、引用文档路径并根据目标提交代码得出结论。仅凭审查结果“complete”或模型自行复述规则不算知识使用证据，必须核对 MCP `read_text_file` 工具调用及其文件路径。
+后端规则样例：[`backend.json`](../../knowledge-access/rules/backend.json)。规则路径关联 `.ai_knowledge/02-服务调用.md`，要求精确比较负状态约定与 `STATUS_FAILURE` 等值判断。原生背景文件限定核验范围；期望模型实际读取索引/章节、引用文档路径并根据目标提交代码得出结论。仅凭审查结果“complete”或模型自行复述规则不算知识使用证据，必须核对 MCP `read_text_file` 工具调用及其文件路径。
 
 结果 JSON 移到 ACL 仅授予当前 Windows 用户的独立临时结果目录，供命令结束后检查；它可能含代码片段和审查内容，应按项目数据处理。输出中会给出结果目录和精确清理命令。隔离配置、依赖、规则与背景文件在 `finally` 中删除；若进程被强制终止导致清理未运行，先核对输出的唯一临时根路径确属本次运行，再精确删除该目录。不要递归清理系统临时目录中的其他内容。
 
 ## MCP 路径边界复测
 
-安装文件 MCP 到临时前缀后，可用 [`external-knowledge-01-boundary.ps1`](external-knowledge-01-boundary.ps1) 检查服务端授权根目录、根外和父目录访问。脚本仅在系统临时目录建测试目录和探测文件。参数 `McpEntry` 指向 filesystem MCP 的 `dist/index.js`；`OutsideFile` 必须是测试根之外的临时普通文件；`TestRoot` 必须是系统临时目录内的子目录。
+安装文件 MCP 到临时前缀后，可用 [`probe-boundary.ps1`](../../knowledge-access/probe-boundary.ps1) 检查服务端授权根目录、根外和父目录访问。脚本仅在系统临时目录建测试目录和探测文件。参数 `McpEntry` 指向 filesystem MCP 的 `dist/index.js`；`OutsideFile` 必须是测试根之外的临时普通文件；`TestRoot` 必须是系统临时目录内的子目录。
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -140,7 +140,7 @@ try {
     npm install --prefix $mcpRoot --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
     Set-Content -LiteralPath $outsideFile -Value 'boundary probe' -NoNewline
-    & .\project-docs\mock\external-knowledge-01-boundary.ps1 `
+    & .\project-docs\retests\knowledge-access\probe-boundary.ps1 `
       -McpEntry $mcpEntry `
       -TestRoot (Join-Path $tempRoot 'authorized-root') `
       -OutsideFile $outsideFile
@@ -155,7 +155,7 @@ finally {
 
 通过条件：`list_allowed_directories` 只列出测试根；父目录和根外文件读取返回 `Access denied`；指向授权根外目标的文件符号链接或目录 Junction 也必须拒绝。此脚本连接 MCP 服务端，因此服务端 `listTools` 会展示它实现的全部工具；是否只向模型提供只读能力须另核对 OCR 会话中实际调用工具名与隔离配置白名单。Windows 的 Junction 是目录联接，不等同于文件符号链接，需分别记录。
 
-Linux 真符号链接复测使用 [external-knowledge-01-linux-symlink.ps1](external-knowledge-01-linux-symlink.ps1)，前提是 PowerShell 7、Podman machine、网络可访问 Alpine package repository 与 npm registry。脚本启动 `docker.io/library/alpine:3.20`，用 `apk` 安装 Node.js/npm，通过 `npx` 获取 `@modelcontextprotocol/server-filesystem@2026.8.31`，在容器中建立 `/tmp/allowed/escape -> /tmp/outside` 并请求读取链接下的文件。2026-10-04 实测返回 `isError: true`，正文 `Access denied - symlink target outside allowed directories: /tmp/outside/secret.md not in /tmp/allowed`。Windows 当前会话创建普通文件符号链接提示需要管理员权限，仍未在 Windows 本机验证；Linux 真实符号链接和 Windows Junction 分别验证，不互相替代。测试容器使用 `--rm`，退出后移除；主线程在测试后停止 Podman machine。
+Linux 真符号链接复测使用 [probe-linux-symlink.ps1](../../knowledge-access/probe-linux-symlink.ps1)，前提是 PowerShell 7、Podman machine、网络可访问 Alpine package repository 与 npm registry。脚本启动 `docker.io/library/alpine:3.20`，用 `apk` 安装 Node.js/npm，通过 `npx` 获取 `@modelcontextprotocol/server-filesystem@2026.8.31`，在容器中建立 `/tmp/allowed/escape -> /tmp/outside` 并请求读取链接下的文件。2026-10-04 实测返回 `isError: true`，正文 `Access denied - symlink target outside allowed directories: /tmp/outside/secret.md not in /tmp/allowed`。Windows 当前会话创建普通文件符号链接提示需要管理员权限，仍未在 Windows 本机验证；Linux 真实符号链接和 Windows Junction 分别验证，不互相替代。测试容器使用 `--rm`，退出后移除；主线程在测试后停止 Podman machine。
 
 ### 缺失文档与部分正文探针
 
@@ -173,7 +173,7 @@ try {
     $env:npm_config_cache = $npmCache
     npm install --prefix $mcpRoot --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $mcpEntry)) { throw 'Installing filesystem MCP failed.' }
-    & .\project-docs\mock\external-knowledge-01-content.ps1 `
+    & .\project-docs\retests\knowledge-access\probe-content.ps1 `
       -McpEntry $mcpEntry `
       -TestRoot (Join-Path $runRoot 'authorized-root')
     if ($LASTEXITCODE -ne 0) { throw "Content probe failed with exit code $LASTEXITCODE." }
@@ -192,7 +192,7 @@ finally {
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path '.').Path
-$backendConfigTemplate = Join-Path $repoRoot 'project-docs/mock/external-knowledge-01-config.backend.json'
+$backendConfigTemplate = Join-Path $repoRoot 'project-docs/retests/knowledge-access/configs/backend.json'
 $sourceConfigPath = Join-Path $env:USERPROFILE '.opencodereview/config.json'
 $oldUserProfile = $env:USERPROFILE
 $oldNpmCache = $env:npm_config_cache
@@ -324,7 +324,7 @@ finally {
 可复跑入口（需 PowerShell 7、Go、Node.js/npm、上述两个本地真实仓库及提交、当前用户已有 DeepSeek 配置、可访问 npm registry；会产生模型用量）：
 
 ```powershell
-& .\project-docs\mock\external-knowledge-01-final.ps1 `
+& .\project-docs\retests\knowledge-access\run-live-review.ps1 `
   -GoExecutable 'C:\path\to\go.exe'
 ```
 

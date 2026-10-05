@@ -217,7 +217,7 @@ HTML 缺省名称为当前命令目录中的 `report-yyyy-mm-dd.html`，不从�
 
 真实项目验收使用[审查测试与参考资料](../../project-docs/review-resources.md)中登记的前后端仓库、对应审查 Skill 和知识库，地址与使用边界在该长期文档中集中维护。
 
-开发过程中可复用的测试命令与实际结果记录在[复测命令目录](../../project-docs/mock/README.md)，工单引用对应场景。自动化边界测试仍遵循本规格中已确认的测试决策。
+开发过程中可复用的测试命令与实际结果记录在[开发复测目录](../../project-docs/retests/README.md)，工单引用对应场景；本次逐项验收证据汇总于[历史验收档案](../../project-docs/retests/archive/README.md)。面向用户的验收材料与稳定测试输入由[人工验收目录](../../project-docs/mock/README.md)提供。自动化边界测试仍遵循本规格中已确认的测试决策。
 
 ## 补充说明
 
@@ -226,5 +226,5 @@ HTML 缺省名称为当前命令目录中的 `report-yyyy-mm-dd.html`，不从�
 - 按阶段顺序推进：先真实模型验收知识读取，再实现报告材料，最后实现并验收 HTML；各阶段验收通过后才进入下一阶段。文件可加载、工具可调用和模型正确使用知识是不同的验收层次。
 - 具体 JSON 字段与版本编码、文件名截短长度、可选参数解析、模型配置与预算、模板资源组织和有界修复方式在对应工单中细化；实测需要改变已确认行为时说明取舍，不借技术细化扩大功能范围。
 - 领域术语见[术语表](../../GLOSSARY.md)；架构取舍见[审查与报告分离](../../project-docs/adr/0001-separate-review-and-report.md)、[外部知识按需读取](../../project-docs/adr/0002-external-knowledge-access.md)和[模型生成 HTML 的事实边界](../../project-docs/adr/0003-model-generated-html.md)。
-- 测试边界及 9 张工单拆分已获用户确认；工单已按本地 Markdown 约定发布，状态为 `ready-for-agent`。执行顺序和入口见[实施索引](README.md)，当前尚未开始产品实现。
+- 本次实现曾按 01–09 工单拆分；编号仅用于本轮实施协调和交付追溯，不构成后续测试分类。功能已集成完成，当前可复用的回归入口按行为场景维护在[开发复测目录](../../project-docs/retests/README.md)，逐项历史验收证据见[归档索引](../../project-docs/retests/archive/README.md)。本地工单和实施过程保留在[实施索引](README.md)供追溯。
 - 本规格由 AI 助手辅助整理；对外发布 issue 或 PR 时，按仓库约定补充实际使用的工具和模型信息，并明确区分已验证能力与待实现内容。

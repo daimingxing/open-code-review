@@ -10,7 +10,7 @@ Blocked by: 无，可立即开始
 
 通过原生规则与现成文件 MCP 完成真实模型审查，证明知识既可按需读取，也能用于检出问题和排除误报。
 
-真实项目验收使用[长期资源索引](../../../project-docs/review-resources.md)，以前后端对应的审查 Skill 和知识库准备规则与样例；复测命令、前提和实际结果按[复测记录约定](../../../project-docs/mock/README.md)长期保存。
+真实项目验收使用[长期资源索引](../../../project-docs/review-resources.md)，以前后端对应的审查 Skill 和知识库准备规则与样例；开发复测命令、前提和实际结果按[复测记录约定](../../../project-docs/retests/README.md)长期保存。
 
 ## 验收条件
 
@@ -24,7 +24,7 @@ Blocked by: 无，可立即开始
 
 - 执行者：Codex 实施智能体。
 - 工作树：`D:\WorkPlace\open-code-review-worktrees\review-report-01`；分支：`codex/review-report-01-knowledge`；基线：`d50f4dc2502edc510e2673b495ad4ac99871eedb`（`feature-review-report`）；实施提交：`877b0ae3f49bc53d8bebac6ecc0e14920811b3c9`、`d4bf93ba052dc851fd72e4380d4033cd0446d2c7`、`fcc92b631fe47fb5d5e549c83205ded0da7b0838`；复测可重现性审查修复提交：`c8ef8d04b70d7b2969666f98a48d702f1a8fbd7b`；功能集成提交：`7a931112c8254c5417a5545ef8156c7bfe518a31`。
-- 环境：Windows 11、PowerShell 7、OCR v1.12.11（a758d9c）、Node.js v22.22.2、filesystem MCP 2026.8.31、DeepSeek `deepseek-flash`。真实仓库及 `.ai_knowledge` 只读使用，未改其文件、忽略配置或未提交内容。复测流程只从当前用户授权的 OCR 配置读取模型设置，在当前用户 ACL 保护的系统临时目录短时写入隔离副本；凭据不回显、不提交，完成后清理。未修改源配置。详见[复测命令与实际结果](../../../project-docs/mock/external-knowledge-01.md)、前后端 MCP 模板和规则样例。
+- 环境：Windows 11、PowerShell 7、OCR v1.12.11（a758d9c）、Node.js v22.22.2、filesystem MCP 2026.8.31、DeepSeek `deepseek-flash`。真实仓库及 `.ai_knowledge` 只读使用，未改其文件、忽略配置或未提交内容。复测流程只从当前用户授权的 OCR 配置读取模型设置，在当前用户 ACL 保护的系统临时目录短时写入隔离副本；凭据不回显、不提交，完成后清理。未修改源配置。详见[历史复测记录](../../../project-docs/retests/archive/review-report-2026-10/knowledge-access.md)及[当前复测入口](../../../project-docs/retests/knowledge-access/README.md)。
 
 ### 真实模型证据
 
@@ -46,9 +46,9 @@ Blocked by: 无，可立即开始
 
 ## 最终集成版本复验（2026-10-05）
 
-- 执行入口：[最终源码真实模型复测脚本](../../../project-docs/mock/external-knowledge-01-final.ps1)；在 `feature-review-report` 源码 `786f6b2d4459478f5f8e9d9108e8c21e1d08dcbe` 构建 CLI。环境：Go 1.25.5、Node.js v22.22.2、filesystem MCP 2026.8.31、DeepSeek `deepseek-flash`。当前模型服务端版本未从响应中获知。真实仓库固定提交：前端 `fd4fdae1dda41b4a6ad7193218d2585500307349`、后端 `ab9d7dc11cc72f6413974992882aa25f8779d9a6`。
+- 执行入口：[当前真实模型复测脚本](../../../project-docs/retests/knowledge-access/run-live-review.ps1)；历史运行结果及限制见[归档记录](../../../project-docs/retests/archive/review-report-2026-10/knowledge-access.md)。
 - 前端：exit 0，native `complete`，20 次工具调用、失败 0；4 次 `read_text_file` 完整且来源可识别，覆盖索引 `eplatei-knowledge.md`、章节 `02-eiblock.md` 和版本说明 `05-constants-version.md`。模型没有对 `EiBlock.getMappedRows` 报缺陷，并提出 2 条 finding，其中一条定位 `AJXX11.js:133-134` 的并发覆盖缺陷。
 - 后端：exit 0，native `complete`，13 次工具调用、失败 0；4 次完整知识读取，包含服务调用章节和后端索引。模型在 `EiInfoCallUtil.java:14` 依据“01 本地服务调用(XLocalManager)”明确指出 `< 0` 与仅等于 `STATUS_FAILURE` 的差异，生成 3 条 finding。
-- 两份材料均保存 `knowledge_sources.status=observed`、`knowledge_version_status=observed`、`application_status=not_observed`。程序只证明正文读取及摘要；知识应用结论由实际 finding、引用章节和完整 MCP 读取记录交叉确认。结果及摘要位于[复测记录](../../../project-docs/mock/external-knowledge-01.md)，私有 JSON 保存在受 ACL 保护的临时目录，未提交。
+- 两份材料均保存 `knowledge_sources.status=observed`、`knowledge_version_status=observed`、`application_status=not_observed`。程序只证明正文读取及摘要；知识应用结论由实际 finding、引用章节和完整 MCP 读取记录交叉确认。结果及摘要位于[归档复测记录](../../../project-docs/retests/archive/review-report-2026-10/knowledge-access.md)，私有 JSON 保存在受 ACL 保护的临时目录，未提交。
 - 一次更早复跑只读到前端索引，未达到指定章节证据门槛，明确不计为通过；前端测试规则现要求分析前读取指定索引/API/版本章节。最终脚本运行满足完整读取要求。仓库规则和脚本的 PowerShell 语法、`english-check` 均通过；报告工单及源代码回归见最终集成记录。
 

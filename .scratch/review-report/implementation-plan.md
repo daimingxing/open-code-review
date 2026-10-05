@@ -6,7 +6,7 @@
 
 完成[功能 Spec](spec.md)及[工单索引](README.md)中的 01–09，并在 `feature-review-report` 功能集成分支完成整体验收。范围和验收条件以 Spec 与各工单为准，依赖关系以工单索引及各工单的 Blocked by 为准。实施分支或工作树不能替代最终交付目标；集成使用 Merge 并保留已有历史。
 
-启动前读取仓库生效的 AGENTS 约定、[项目设计](../../project-docs/project-design.md)、[分支维护](../../project-docs/branch-maintenance.md)、[领域术语](../../GLOSSARY.md)及 Spec 引用的 ADR。涉及上游行为时读取 [OCR 知识库](../../project-docs/open-code-review/README.md)，真实效果测试使用[资源索引](../../project-docs/review-resources.md)，复测记录遵循 [mock 目录约定](../../project-docs/mock/README.md)。
+启动前读取仓库生效的 AGENTS 约定、[项目设计](../../project-docs/project-design.md)、[分支维护](../../project-docs/branch-maintenance.md)、[领域术语](../../GLOSSARY.md)及 Spec 引用的 ADR。涉及上游行为时读取 [OCR 知识库](../../project-docs/open-code-review/README.md)，真实效果测试使用[资源索引](../../project-docs/review-resources.md)，开发复测记录遵循[复测目录约定](../../project-docs/retests/README.md)；供用户亲自验收的材料归入[人工验收目录](../../project-docs/mock/README.md)。
 
 ## 主线程的职责
 
@@ -34,7 +34,7 @@
 
 - 读取工单与必要上下文，确认其前置条件；复用现有能力，交付本工单完整用户路径及对应测试。
 - 使用仓库规定的检查入口。可控模型测试不替代 01 的真实模型知识应用验收；记录指定测试仓库的实际范围、版本及结果。
-- 将可复用命令、运行前提、预期结果和实际验证状态写入 project-docs/mock 对应主题，并在工单中链接。
+- 将开发者可复用的命令、运行前提、预期结果和实际验证状态写入 project-docs/retests 对应主题；用户验收脚本和稳定测试输入归入 project-docs/mock。
 - 提交前遵守仓库审查要求；交付前合入最新功能集成分支，按影响复测。合并使用 Merge，不重写共享历史。
 - 只对已满足的验收项打勾。交付未完成时说明剩余问题，不能将“代码已写”“命令返回成功”或“模型没有报错”当作完整验收。
 
@@ -76,4 +76,4 @@
 
 ## 给主线程的启动指令
 
-> 请作为协调智能体，按这份实施协调计划完成审查与报告功能的 01–09 工单。每张工单使用新的实施子智能体或独立会话，按需安排独立审查，遵循依赖顺序和验收门槛。前置任务验收并集成后自动进入下一张，不逐张等待我的确认。把交付证据记录在工单，可复测命令记录在 project-docs/mock；只有改变已确认需求或遇到无法自行解决的阻塞时才询问我。全部完成后执行整体验收并汇报。
+> 本计划仅记录本次审查与报告功能的实施协调过程。后续功能不沿用本计划中的工单编号；开发复测记录写入 project-docs/retests，面向用户的验收材料写入 project-docs/mock。
