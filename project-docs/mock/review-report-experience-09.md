@@ -114,11 +114,13 @@ git show e66aeaef2c4f554b0f36ed788d47bbc9fab56237:cmd/opencodereview/progress_st
 
 最终集成代码提交为 `3e069f6f9d6f16d2c9e37d7a3fd311c1478f1cd6`，相对 `dev` 的基点为 `d50f4dc2502edc510e2673b495ad4ac99871eedb`。独立审查覆盖 `dev...feature-review-report` 全部差异；审查者复查了前后端真实模型知识结果，确认工单 01 的实际知识读取及对应 finding 证据充分，并复核了此前发现的问题已修复。最终结论无阻塞。
 
-前提：PowerShell 7、仓库根目录、Go 1.25.5。复测前设置 `$go` 为本机 `go.exe` 路径；如果 Go 已在 `PATH`，以下命令可直接取得路径。审查者在上述集成代码版本执行并通过：
+前提：PowerShell 7、仓库根目录、Go 1.25.14。审查者在上述集成代码版本使用 `D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe` 执行并通过；重跑时可预先将 `$go` 设为本机路径，否则命令从 `PATH` 查找：
 
 ```powershell
-$go = (Get-Command go -ErrorAction Stop).Source
-if ((& $go version) -notmatch 'go1.25.5') { throw '需要 Go 1.25.5' }
+if ([string]::IsNullOrWhiteSpace($go) -or -not (Test-Path -LiteralPath $go)) {
+    $go = (Get-Command go -ErrorAction Stop).Source
+}
+if ((& $go version) -notmatch 'go1.25.14') { throw '需要 Go 1.25.14' }
 & $go test ./... -count=1 -timeout=15m
 if ($LASTEXITCODE -ne 0) { throw '全量 Go 测试失败' }
 & $go vet ./internal/report ./internal/mcp ./cmd/opencodereview
