@@ -319,7 +319,7 @@ finally {
 
 ## 2026-10-05 最终集成版本复测
 
-在 `feature-review-report` 的源码提交 `786f6b2d4459478f5f8e9d9108e8c21e1d08dcbe` 构建本地 OCR，并以 DeepSeek `deepseek-flash`、Node.js `v22.22.2`、filesystem MCP `2026.8.31` 分别重跑前端误报排除和后端知识依赖正例。真实仓库固定审查提交 `fd4fdae1dda41b4a6ad7193218d2585500307349`、`ab9d7dc11cc72f6413974992882aa25f8779d9a6`；知识库通过授权只读 MCP 使用，期间未修改工作区、忽略文件或未提交内容。前端规则现要求在检查代码前成功读取索引、API 章节和版本章节；只读到索引的早期复跑不算通过。
+在 `feature-review-report` 的源码提交 `786f6b2d4459478f5f8e9d9108e8c21e1d08dcbe` 构建本地 OCR，并以 DeepSeek `deepseek-flash`、Node.js `v22.22.2`、filesystem MCP `2026.8.31` 分别重跑前端误报排除和后端知识依赖正例。最终集成代码提交为 `3e069f6`；独立审查确认两提交之间没有生产行为变化，新增内容是验收规则、测试和记录。脚本本身从执行时的当前源码构建。真实仓库固定审查提交 `fd4fdae1dda41b4a6ad7193218d2585500307349`、`ab9d7dc11cc72f6413974992882aa25f8779d9a6`；知识库通过授权只读 MCP 使用，期间未修改工作区、忽略文件或未提交内容。前端规则现要求在检查代码前成功读取索引、API 章节和版本章节；只读到索引的早期复跑不算通过。
 
 可复跑入口（需 PowerShell 7、Go、Node.js/npm、上述两个本地真实仓库及提交、当前用户已有 DeepSeek 配置、可访问 npm registry；会产生模型用量）：
 

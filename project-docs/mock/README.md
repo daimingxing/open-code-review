@@ -55,7 +55,7 @@
 
 工单 06 的三种模式、不完整结果、原生输出兼容、timeout/budget 截止、安全保存及恢复边界见[不完整审查材料与失败恢复复测记录](review-report-partial-recovery-06.md)（CLI/MCP 与全仓检查通过；目标分支复测和独立审查无阻塞；不支持硬链接的文件系统不会生成报告材料）。
 
-工单 07 的报告材料 CLI、HTML 事实/安全校验和 Edge 离线浏览器复测见[单份中文 HTML 报告复测记录](review-report-html-07.md)（受控模型与 Edge 已验证；DeepSeek 曾因返回非 HTML 文档失败，待 09 修复能力后复测）。
+工单 07 的报告材料 CLI、HTML 事实/安全校验和 Edge 离线浏览器复测见[单份中文 HTML 报告复测记录](review-report-html-07.md)（受控模型与 Edge 已验证；DeepSeek 初次输出失败，09 阶段使用具体诊断修复后真实生成和 Edge 验收通过，详情见[工单 09 记录](review-report-experience-09.md)）。
 
 工单 08 的多份输入、归属与身份统计、重复拒绝、HTML 安全保存及 Edge 离线浏览器复测见[多份中文 HTML 报告复测记录](review-report-multi-input-08.md)（受控模型与 Edge 已验证；真实模型未在本工单调用）。
 

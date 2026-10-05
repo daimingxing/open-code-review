@@ -108,4 +108,25 @@ try {
 git show e66aeaef2c4f554b0f36ed788d47bbc9fab56237:cmd/opencodereview/progress_stream_e2e_test.go | Select-String 'func TestReviewE2E_JSONHumanStreamsProgressToStderr'
 ```
 
-实际：第一条报告包通过，CLI 全包达到 180 秒包级测试上限；45 秒 JSON 定位运行最后停留在既有 `TestReviewE2E_JSONHumanStreamsProgressToStderr`，堆栈为 `retryTestGit` 的 `exec.Cmd.CombinedOutput`（`retry_fake_llm_test.go:343`，调用自 `progress_stream_e2e_test.go:36`）。该测试在 e66 基线已存在，单独运行通过（6.365 秒）；未确认全包超时根因，也未修改该无关测试。包级 test timeout 与产品 HTML 10 分钟总预算是不同限制，最终集成全量回归由主线程使用更充分的包级时限执行。
+实际：第一条报告包通过，CLI 全包达到 180 秒包级测试上限；45 秒 JSON 定位运行最后停留在既有 `TestReviewE2E_JSONHumanStreamsProgressToStderr`，堆栈为 `retryTestGit` 的 `exec.Cmd.CombinedOutput`（`retry_fake_llm_test.go:343`，调用自 `progress_stream_e2e_test.go:36`）。该测试在 e66 基线已存在，单独运行通过（6.365 秒）；未确认全包超时根因，也未修改该无关测试。包级 test timeout 与产品 HTML 10 分钟总预算是不同限制；最终集成分支上的全量回归已通过，见下文。
+
+## 最终集成验收与独立审查
+
+最终集成代码提交为 `3e069f6f9d6f16d2c9e37d7a3fd311c1478f1cd6`，相对 `dev` 的基点为 `d50f4dc2502edc510e2673b495ad4ac99871eedb`。独立审查覆盖 `dev...feature-review-report` 全部差异；审查者复查了前后端真实模型知识结果，确认工单 01 的实际知识读取及对应 finding 证据充分，并复核了此前发现的问题已修复。最终结论无阻塞。
+
+前提：PowerShell 7、仓库根目录、Go 1.25.5。复测前设置 `$go` 为本机 `go.exe` 路径；如果 Go 已在 `PATH`，以下命令可直接取得路径。审查者在上述集成代码版本执行并通过：
+
+```powershell
+$go = (Get-Command go -ErrorAction Stop).Source
+if ((& $go version) -notmatch 'go1.25.5') { throw '需要 Go 1.25.5' }
+& $go test ./... -count=1 -timeout=15m
+if ($LASTEXITCODE -ne 0) { throw '全量 Go 测试失败' }
+& $go vet ./internal/report ./internal/mcp ./cmd/opencodereview
+if ($LASTEXITCODE -ne 0) { throw 'go vet 失败' }
+git diff --check dev...feature-review-report
+if ($LASTEXITCODE -ne 0) { throw '完整差异空白检查失败' }
+```
+
+CLI 报告定向测试亦通过；主线程另在集成分支执行报告包与 `TestReportCommand` 聚焦测试、`go vet ./internal/report ./cmd/opencodereview`、脚本语法和英文字符检查，均通过。其后仅补充验收文档，没有生产代码行为变化。
+
+尚未覆盖的环境项：模型服务未提供可确认的服务端版本；Windows 普通文件符号链接因当前权限不足未验证（Linux 真符号链接和 Windows Junction 已分别验证）；环境没有可用 CGO/GCC 时未执行 race 检查。上述限制不记为通过。
