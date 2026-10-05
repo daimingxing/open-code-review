@@ -73,12 +73,30 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 }
 
 func TestValidateHTMLDocumentAcceptsFindingOnOtherAllowedElement(t *testing.T) {
-	material := validHTMLMaterial()
-	document := validHTMLDocument(material)
-	document = strings.Replace(document, `<article data-finding-id=`, `<div data-finding-id=`, 1)
-	document = strings.Replace(document, `</article>`, `</div>`, 1)
-	if err := ValidateHTMLDocument(document, material); err != nil {
-		t.Fatalf("ValidateHTMLDocument() rejected a finding on a div: %v", err)
+	for _, wrapper := range []struct {
+		name   string
+		before string
+		tag    string
+		after  string
+	}{
+		{name: "div", tag: "div"},
+		{name: "section", tag: "section"},
+		{name: "blockquote", tag: "blockquote"},
+		{name: "li", before: "<ul>", tag: "li", after: "</ul>"},
+		{name: "dd", before: "<dl><dt>\u95ee\u9898</dt>", tag: "dd", after: "</dl>"},
+		{name: "fieldset", tag: "fieldset"},
+		{name: "td", before: "<table><tbody><tr>", tag: "td", after: "</tr></tbody></table>"},
+		{name: "th", before: "<table><tbody><tr>", tag: "th", after: "</tr></tbody></table>"},
+	} {
+		t.Run(wrapper.name, func(t *testing.T) {
+			material := validHTMLMaterial()
+			document := validHTMLDocument(material)
+			document = strings.Replace(document, `<article data-finding-id=`, wrapper.before+"<"+wrapper.tag+` data-finding-id=`, 1)
+			document = strings.Replace(document, `</article>`, "</"+wrapper.tag+">"+wrapper.after, 1)
+			if err := ValidateHTMLDocument(document, material); err != nil {
+				t.Fatalf("ValidateHTMLDocument() rejected a finding on %s: %v", wrapper.tag, err)
+			}
+		})
 	}
 }
 
@@ -89,6 +107,26 @@ func TestValidateHTMLDocumentRequiresFlowContentFindingContainer(t *testing.T) {
 	document = strings.Replace(document, `</article>`, `</p>`, 1)
 	if err := ValidateHTMLDocument(document, material); err == nil || !strings.Contains(err.Error(), "flow-content container") {
 		t.Fatalf("ValidateHTMLDocument() = %v, want a finding container diagnostic", err)
+	}
+}
+
+func TestValidateHTMLDocumentRequiresValidFindingContainerParent(t *testing.T) {
+	material := validHTMLMaterial()
+	document := validHTMLDocument(material)
+	document = strings.Replace(document, `<article data-finding-id=`, `<li data-finding-id=`, 1)
+	document = strings.Replace(document, `</article>`, `</li>`, 1)
+	if err := ValidateHTMLDocument(document, material); err == nil || !strings.Contains(err.Error(), "valid parent") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want a finding parent diagnostic", err)
+	}
+}
+
+func TestValidateHTMLDocumentRequiresTermForDescriptionFinding(t *testing.T) {
+	material := validHTMLMaterial()
+	document := validHTMLDocument(material)
+	document = strings.Replace(document, `<article data-finding-id=`, `<dl><dd data-finding-id=`, 1)
+	document = strings.Replace(document, `</article>`, `</dd></dl>`, 1)
+	if err := ValidateHTMLDocument(document, material); err == nil || !strings.Contains(err.Error(), "valid parent") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want a finding parent diagnostic", err)
 	}
 }
 

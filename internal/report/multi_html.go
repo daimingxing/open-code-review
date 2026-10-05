@@ -133,6 +133,9 @@ func ValidateMultiHTMLDocument(document string, input MultiReportInput) error {
 			if _, ok := allowedHTMLFindingTags[strings.ToLower(node.Data)]; !ok {
 				return fmt.Errorf("HTML finding %q must use a flow-content container", findingID)
 			}
+			if !validFindingContainerParent(node) {
+				return fmt.Errorf("HTML finding %q must use a valid parent for its container", findingID)
+			}
 			unitID := attribute(node, "data-review-unit-id")
 			if unitID == "" {
 				return fmt.Errorf("HTML finding %q has no review-unit ownership", findingID)

@@ -213,8 +213,8 @@ func TestWriteHTMLAcceptsNonArticleFinding(t *testing.T) {
 	if !strings.Contains(string(content), `<summary><div>`+summaryText+`</div></summary>`) {
 		t.Fatal("published HTML did not use the visible div as the finding disclosure summary")
 	}
-	if !strings.Contains(string(content), `[data-finding-id] { display: block;`) {
-		t.Fatal("published HTML did not give the finding container a stable block layout")
+	if !strings.Contains(string(content), `[data-finding-id]:not(td):not(th) { display: block;`) {
+		t.Fatal("published HTML did not give flow containers a stable block layout")
 	}
 	if !strings.Contains(string(content), `data-review-category-index=`) || !strings.Contains(string(content), `[data-finding-id]:not([data-review-category-index=`) {
 		t.Fatal("published HTML did not make the finding element available to category filtering")

@@ -204,6 +204,31 @@ func TestValidateMultiHTMLDocumentRequiresReviewUnitOwnershipForFindingIDs(t *te
 	if err := ValidateMultiHTMLDocument(withoutArticle, input); err != nil {
 		t.Fatalf("ValidateMultiHTMLDocument() rejected a finding on a div: %v", err)
 	}
+	paragraphFinding := strings.Replace(withoutArticle, `<article data-review-unit-id=`, `<p data-review-unit-id=`, 1)
+	paragraphFinding = strings.Replace(paragraphFinding, `</article>`, `</p>`, 1)
+	if err := ValidateMultiHTMLDocument(paragraphFinding, input); err == nil || !strings.Contains(err.Error(), "flow-content container") {
+		t.Fatalf("ValidateMultiHTMLDocument() = %v, want a finding container diagnostic", err)
+	}
+	firstFinding := `<article data-review-unit-id="` + input.ReviewUnits[0].ID + `" data-finding-id=`
+	firstFindingStart := strings.Index(document, firstFinding)
+	if firstFindingStart < 0 {
+		t.Fatal("fixture did not contain the first unit's finding")
+	}
+	firstFindingEndOffset := strings.Index(document[firstFindingStart:], `</article>`)
+	if firstFindingEndOffset < 0 {
+		t.Fatal("fixture did not contain a complete first finding element")
+	}
+	firstFindingEnd := firstFindingStart + firstFindingEndOffset + len(`</article>`)
+	listItem := strings.Replace(document[firstFindingStart:firstFindingEnd], `<article `, `<li `, 1)
+	listItem = strings.Replace(listItem, `</article>`, `</li>`, 1)
+	validListFinding := document[:firstFindingStart] + `<ul>` + listItem + `</ul>` + document[firstFindingEnd:]
+	if err := ValidateMultiHTMLDocument(validListFinding, input); err != nil {
+		t.Fatalf("ValidateMultiHTMLDocument() rejected a finding on a list item: %v", err)
+	}
+	listFinding := document[:firstFindingStart] + listItem + document[firstFindingEnd:]
+	if err := ValidateMultiHTMLDocument(listFinding, input); err == nil || !strings.Contains(err.Error(), "valid parent") {
+		t.Fatalf("ValidateMultiHTMLDocument() = %v, want a finding parent diagnostic", err)
+	}
 	withoutOwner := strings.Replace(document, article, `<article data-finding-id="`+first.Findings[0].ID+`"`, 1)
 	if withoutOwner == document {
 		t.Fatal("fixture did not contain the second unit's colliding finding")
