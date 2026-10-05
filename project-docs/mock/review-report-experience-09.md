@@ -97,7 +97,7 @@ try {
 
 历史真实运行曾因模型返回非 HTML 或校验失败而退出，未发布文件；较早的 2 分钟总限运行也曾达到 timeout。2026-10-05 的初版标准调整后，主线程首次真实复测仍因修复诊断过于笼统而三次失败：耗时 `2m9.936s`，累计 input/completion/visible 为 `37830/43049/28681` tokens，第三次诊断均为“finding set or facts do not match”，未发布 HTML。实现补齐安全字段级诊断后，同一 JSON、DeepSeek Flash 和 10 分钟预算复测成功：第 1 次 `68.424s`（input/completion/visible `6145/20236/9488`），检测到 `sections.achievements.data.model_summary_status` 与材料不符；第 2 次修复 `25.711s`（`15782/10182/9483`），HTML 阶段合计 `1m34.235s`，退出 0，安全发布 HTML，completion usage 均由服务报告。
 
-真实成品仅保存在隔离临时目录：`C:\Users\60429\AppData\Local\Temp\ocr-review-report-live-11fe67599dc746d6add6daab79ec12b8\results\frontend-report-debug-2da3cd4c63bb440297378f51954dd512.html`，大小 38,163 bytes，SHA-256 `CA641A8B2954348872D5FD79EBFBF7FC82BC779A14E2F0B215BB08FFA97CCA5C`。Edge `154.0.4258.53` 实际打开该本地文件并检查：1 条 finding、161 个事实标记；1440px/375px 无横向溢出，筛选可操作、radio 键盘可达、details 可折叠，打印保留全部事实；页面错误、危险 DOM、外联请求均为 0。首屏包含筛选、审查概览和风险统计，正文信息密集但可读，作为允许视觉差异的初版样例，不作为最终样式模板。截图位于 `C:\Users\60429\AppData\Local\Temp\ocr-review-report-live-11fe67599dc746d6add6daab79ec12b8\results\actual-report-viewport-1440.png`，未提交。
+真实成品仅保存在隔离临时目录：`C:\Users\60429\AppData\Local\Temp\ocr-review-report-live-11fe67599dc746d6add6daab79ec12b8\results\frontend-report-debug-2da3cd4c63bb440297378f51954dd512.html`，大小 38,163 bytes，SHA-256 `CA641A8B2954348872D5FD79EBFBF7FC82BC779A14E2F0B215BB08FFA97CCA5C`。该样例对应本次目标分支合并前已完成的真实 DeepSeek 运行；最终分支完整 Go 回归已在 `fc799ad` 通过。Edge `154.0.4258.53` 实际打开该本地文件并检查：1 条 finding、161 个事实标记；1440px/375px 无横向溢出，筛选可操作、radio 键盘可达、details 可折叠，打印保留全部事实；页面错误、危险 DOM、外联请求均为 0。首屏包含筛选、审查概览和风险统计，正文信息密集但可读，作为允许视觉差异的初版样例，不作为最终样式模板。截图位于 `C:\Users\60429\AppData\Local\Temp\ocr-review-report-live-11fe67599dc746d6add6daab79ec12b8\results\actual-report-viewport-1440.png`，未提交。
 
 ## 包级回归限制
 
