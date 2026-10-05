@@ -82,6 +82,16 @@ func TestValidateHTMLDocumentAcceptsFindingOnOtherAllowedElement(t *testing.T) {
 	}
 }
 
+func TestValidateHTMLDocumentRequiresFlowContentFindingContainer(t *testing.T) {
+	material := validHTMLMaterial()
+	document := validHTMLDocument(material)
+	document = strings.Replace(document, `<article data-finding-id=`, `<p data-finding-id=`, 1)
+	document = strings.Replace(document, `</article>`, `</p>`, 1)
+	if err := ValidateHTMLDocument(document, material); err == nil || !strings.Contains(err.Error(), "flow-content container") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want a finding container diagnostic", err)
+	}
+}
+
 func TestValidateHTMLDocumentRejectsActiveContentAndLocalPaths(t *testing.T) {
 	material := validHTMLMaterial()
 	content := validHTMLDocument(material)

@@ -28,7 +28,7 @@ h2 { margin: 0 0 .75rem; font-size: 1.35rem; }
 .report-statistics { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; }
 .report-statistic { padding: .75rem; border: 1px solid #c7cdd3; border-radius: 4px; }
 output { display: block; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-[data-finding-id] { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
+[data-finding-id] { display: block; max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
 section:not([data-section="finding-details"]) > div[data-review-unit-id] { margin: .75rem 0; padding: .5rem 0 .75rem; border-bottom: 1px solid #c7cdd3; }
 [data-finding-id] h3 { margin-top: 0; }
 pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -73,6 +73,10 @@ var allowedHTMLTags = map[string]struct{}{
 	"dt": {}, "dd": {}, "blockquote": {}, "br": {}, "hr": {}, "table": {}, "thead": {}, "tbody": {},
 	"tr": {}, "th": {}, "td": {}, "output": {}, "time": {}, "mark": {}, "a": {}, "article": {},
 	"fieldset": {}, "legend": {}, "label": {}, "input": {}, "details": {}, "summary": {},
+}
+
+var allowedHTMLFindingTags = map[string]struct{}{
+	"article": {}, "section": {}, "div": {}, "blockquote": {}, "li": {},
 }
 
 func ValidateHTMLDocument(document string, material Material) error {
@@ -174,6 +178,9 @@ func ValidateHTMLDocument(document string, material Material) error {
 				stats[value] = node
 			}
 			if value := attribute(node, "data-finding-id"); value != "" {
+				if _, ok := allowedHTMLFindingTags[tag]; !ok {
+					return fmt.Errorf("HTML finding %q must use a flow-content container", value)
+				}
 				if _, exists := findings[value]; exists {
 					return fmt.Errorf("HTML document duplicates finding %q", value)
 				}
