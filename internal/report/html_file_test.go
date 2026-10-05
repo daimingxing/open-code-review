@@ -221,6 +221,42 @@ func TestWriteHTMLAcceptsNonArticleFinding(t *testing.T) {
 	}
 }
 
+func TestPrepareHTMLAcceptsFindingFieldsetAndRejectsFieldsetsOutsideFindings(t *testing.T) {
+	material := validHTMLMaterial()
+	base := validHTMLModelDocument(material)
+	firstFinding := findingHTML(material.Findings[0])
+	fieldsetFinding := strings.Replace(firstFinding, "<article", "<fieldset", 1)
+	fieldsetFinding = strings.Replace(fieldsetFinding, `>`, `><legend>Finding details</legend>`, 1)
+	fieldsetFinding = strings.Replace(fieldsetFinding, "</article>", "</fieldset>", 1)
+	withFieldsetFinding := strings.Replace(base, firstFinding, fieldsetFinding, 1)
+	if _, err := PrepareHTML(withFieldsetFinding, material); err != nil {
+		t.Fatalf("PrepareHTML() rejected a finding fieldset with its legend: %v", err)
+	}
+
+	outsideFinding := strings.Replace(base, `</section><section data-section="quality-coverage"`, `<fieldset><legend>Other content</legend>outside finding</fieldset></section><section data-section="quality-coverage"`, 1)
+	if _, err := PrepareHTML(outsideFinding, material); err == nil {
+		t.Fatal("PrepareHTML() accepted fieldset and legend markup outside a finding")
+	}
+}
+
+func TestPrepareHTMLRejectsModelProvidedFormAndDisclosureControls(t *testing.T) {
+	material := validHTMLMaterial()
+	base := validHTMLModelDocument(material)
+	for name, control := range map[string]string{
+		"label":   `<label>model control</label>`,
+		"input":   `<input type="checkbox">`,
+		"details": `<details open><summary>model control</summary></details>`,
+		"summary": `<summary>model control</summary>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := strings.Replace(base, `</section><section data-section="quality-coverage"`, control+`</section><section data-section="quality-coverage"`, 1)
+			if _, err := PrepareHTML(document, material); err == nil {
+				t.Fatalf("PrepareHTML() accepted model-provided %s markup", name)
+			}
+		})
+	}
+}
+
 func TestWriteMultiHTMLRefusesOverwriteAndUsesFixedStyles(t *testing.T) {
 	first := validHTMLMaterial()
 	first.Review.RunID = "first-unit"
