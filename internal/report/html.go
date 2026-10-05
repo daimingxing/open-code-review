@@ -28,7 +28,8 @@ h2 { margin: 0 0 .75rem; font-size: 1.35rem; }
 .report-statistics { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; }
 .report-statistic { padding: .75rem; border: 1px solid #c7cdd3; border-radius: 4px; }
 output { display: block; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-[data-finding-id] { display: block; max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
+[data-finding-id]:not(td):not(th) { display: block; }
+[data-finding-id] { max-width: 100%; min-width: 0; margin: 1rem 0; padding: 1rem; border: 1px solid #aeb7c0; border-radius: 4px; }
 section:not([data-section="finding-details"]) > div[data-review-unit-id] { margin: .75rem 0; padding: .5rem 0 .75rem; border-bottom: 1px solid #c7cdd3; }
 [data-finding-id] h3 { margin-top: 0; }
 pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -77,6 +78,40 @@ var allowedHTMLTags = map[string]struct{}{
 
 var allowedHTMLFindingTags = map[string]struct{}{
 	"article": {}, "section": {}, "div": {}, "blockquote": {}, "li": {},
+	"dd": {}, "fieldset": {}, "td": {}, "th": {},
+}
+
+func validFindingContainerParent(node *html.Node) bool {
+	if node.Parent == nil || node.Parent.Type != html.ElementNode {
+		return false
+	}
+	parent := strings.ToLower(node.Parent.Data)
+	switch strings.ToLower(node.Data) {
+	case "li":
+		return parent == "ul" || parent == "ol"
+	case "dd":
+		if parent != "dl" {
+			return false
+		}
+		for sibling := node.PrevSibling; sibling != nil; sibling = sibling.PrevSibling {
+			if sibling.Type != html.ElementNode {
+				continue
+			}
+			switch strings.ToLower(sibling.Data) {
+			case "dt":
+				return true
+			case "dd":
+				continue
+			default:
+				return false
+			}
+		}
+		return false
+	case "td", "th":
+		return parent == "tr"
+	default:
+		return true
+	}
 }
 
 func ValidateHTMLDocument(document string, material Material) error {
@@ -180,6 +215,9 @@ func ValidateHTMLDocument(document string, material Material) error {
 			if value := attribute(node, "data-finding-id"); value != "" {
 				if _, ok := allowedHTMLFindingTags[tag]; !ok {
 					return fmt.Errorf("HTML finding %q must use a flow-content container", value)
+				}
+				if !validFindingContainerParent(node) {
+					return fmt.Errorf("HTML finding %q must use a valid parent for its container", value)
 				}
 				if _, exists := findings[value]; exists {
 					return fmt.Errorf("HTML document duplicates finding %q", value)

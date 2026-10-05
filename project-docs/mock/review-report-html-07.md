@@ -90,9 +90,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Edge 浏览器检查未能运行' }
   - Edge `154.0.4258.53` 桌面检查：标题“审查报告”、`lang=zh-CN`、9 章、60 条 finding、660 个 finding 事实行、10 项统计、0 个外部/默认隐藏容器，`scrollWidth=1440`。每条 finding 以 11 个固定中文标签字段逐行呈现，状态显示为中文。
   - Edge 375px 窄屏检查：`scrollWidth=375`、主体宽 343px、60 条 finding 仍有 660 个带标签事实行。页面无 JS 错误；唯一网络请求为本地 HTML 的 `file:` URL。
   - 最终截图位于系统临时目录：`C:\Users\60429\AppData\Local\Temp\ocr-report-07-final-desktop-viewport.png`、`C:\Users\60429\AppData\Local\Temp\ocr-report-07-final-finding-viewport.png`、`C:\Users\60429\AppData\Local\Temp\ocr-report-07-final-desktop.png`、`C:\Users\60429\AppData\Local\Temp\ocr-report-07-final-mobile.png`。
-  - 首轮浏览器检查曾发现长 SHA 横溢；后续检查发现 finding 字段缺少固定标签。模板现要求固定事实标签和路径/行号绑定，并使用程序固定样式；标签版最终报告桌面、窄屏均通过。
-  - 模型元素采用 fail-closed 语义 allowlist；`article` 保留在允许项，finding 的 `data-finding-id` 必须属于 `<article>`；`div[data-finding-id]` 有拒绝与不落盘负例。`canvas`、关闭的 `details`/`dialog`、`noscript`、`noembed`、`noframes` 等未知元素均有校验和不落盘负例。
-  - 最后一项 article 校验仅收紧发布前验证，不改变 HTML 渲染，因此未重跑 Edge；Edge 的输入报告由前一代码提交 `dbfa92dc4f8a890c1ef3b17191d4b56b03840d18` 生成，最终修复提交为 `0bf782f96877a6b542b9e8e975d9bf858bf22074`。
+- 历史浏览器检查曾发现长 SHA 横溢；早期实现也曾要求 finding 字段使用固定标签并使用程序固定样式。2026-10-05 初版验收调整后，固定标签与固定视觉不再是当前门槛；当前要求主要定位、等级、说明、证据和统计完整，见工单 09 记录。
+- 历史实现曾将 `data-finding-id` 限制为 `<article>`，并拒绝 `div[data-finding-id]`。2026-10-05 的兼容性调整已取代该限制：当前允许 `article`、`section`、`div`、`blockquote`、`li`、`dd`、`fieldset`、`td`、`th`；列表项须直接位于 `ul`/`ol`，描述项须在 `dl` 中属于 `dt+ dd+` 组，表格单元格须直接位于 `tr`。`canvas`、关闭的 `details`/`dialog`、`noscript`、`noembed`、`noframes` 等不安全或不可见内容仍被拒绝。
+- 早期提交 `0bf782f96877a6b542b9e8e975d9bf858bf22074` 的 article-only 校验仅代表当时的实现与测试，不代表当前验收。此前 Edge 输入报告由 `dbfa92dc4f8a890c1ef3b17191d4b56b03840d18` 生成；当前允许多种容器后的浏览器与真实模型验收见工单 09 记录。
   - 独立 reviewer `review_report_07` 复核最终提交，确认无 blocker、无残留 finding。reviewer 当前环境无法定位 Go，未自行重跑测试；上列聚焦测试由实施环境在最终提交前执行。
 - `go test ./cmd/opencodereview -count=1 -timeout=150s` 曾在既有 MCP 测试 `TestReviewE2E_ReportTokenBudgetFailureIsNotSuccessAcrossModes` 超时；堆栈等待于现有 `retryTestRepo` / MCP `streamableServerConn.Read`。该超时不属于上述 `TestReportCommand` 聚焦集合，需在上游 MCP E2E 故障修复后复测，不作为工单 07 的通过证据。
 - 真实模型失败复现（主线程执行，2026-10-04，基于 `d34bb009`）：运行 `ocr report --input frontend-report.json`，使用已有 DeepSeek 配置。请求耗时 58.216 秒，input/output 用量分别为 5,645/18,345 tokens（reported）；CLI 因响应未以 HTML doctype 开始而拒绝发布，错误为 `HTML document must begin with an HTML doctype`，没有生成 HTML 文件。该运行明确记为失败，不计入通过证据；不放宽 HTML 校验，模型响应修复由工单 09 的有界修复能力处理后再复测。
