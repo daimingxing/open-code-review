@@ -44,3 +44,11 @@ Blocked by: 无，可立即开始
 - 独立复核曾发现复测文档缺少变量、隔离配置准备步骤和重试参数定义（P2）；实施者在 `c8ef8d0` 补齐完整 PS7 准备流程、受保护配置生命周期及结果清理命令。独立复核确认该问题已关闭；未重复真实模型调用。主线程对复测文档的四个 PowerShell 代码块再次运行 `Parser.ParseInput`，全部通过。复测结果 JSON 保留在当前用户 ACL 限制的独立临时目录，文档给出精确清理命令；该目录由执行者在检查后删除。
 - 集成门禁复核：`english-check` 原先报告本工单新增脚本和后端规则样例中的中文。按扫描器要求为中文复测说明及环境相关结果增加逐行原因标记，并将规则路径 `02-服务调用.md` 编为 JSON Unicode 转义；原有 `project-docs/examples/xr-review-rule.json` 中的中文提示也仅改为等价 Unicode 转义，避免基线样例使全仓 `make check` 失败。PowerShell 7 解析全部通过；两份 JSON 均可解析且后端规则恢复为同一中文路径；扫描器报告 652 个源文件无未批准字符。此整理不改变运行时规则文本。
 
+## 最终集成版本复验（2026-10-05）
+
+- 执行入口：[最终源码真实模型复测脚本](../../../project-docs/mock/external-knowledge-01-final.ps1)；在 `feature-review-report` 源码 `786f6b2d4459478f5f8e9d9108e8c21e1d08dcbe` 构建 CLI。环境：Go 1.25.5、Node.js v22.22.2、filesystem MCP 2026.8.31、DeepSeek `deepseek-flash`。当前模型服务端版本未从响应中获知。真实仓库固定提交：前端 `fd4fdae1dda41b4a6ad7193218d2585500307349`、后端 `ab9d7dc11cc72f6413974992882aa25f8779d9a6`。
+- 前端：exit 0，native `complete`，20 次工具调用、失败 0；4 次 `read_text_file` 完整且来源可识别，覆盖索引 `eplatei-knowledge.md`、章节 `02-eiblock.md` 和版本说明 `05-constants-version.md`。模型没有对 `EiBlock.getMappedRows` 报缺陷，并提出 2 条 finding，其中一条定位 `AJXX11.js:133-134` 的并发覆盖缺陷。
+- 后端：exit 0，native `complete`，13 次工具调用、失败 0；4 次完整知识读取，包含服务调用章节和后端索引。模型在 `EiInfoCallUtil.java:14` 依据“01 本地服务调用(XLocalManager)”明确指出 `< 0` 与仅等于 `STATUS_FAILURE` 的差异，生成 3 条 finding。
+- 两份材料均保存 `knowledge_sources.status=observed`、`knowledge_version_status=observed`、`application_status=not_observed`。程序只证明正文读取及摘要；知识应用结论由实际 finding、引用章节和完整 MCP 读取记录交叉确认。结果及摘要位于[复测记录](../../../project-docs/mock/external-knowledge-01.md)，私有 JSON 保存在受 ACL 保护的临时目录，未提交。
+- 一次更早复跑只读到前端索引，未达到指定章节证据门槛，明确不计为通过；前端测试规则现要求分析前读取指定索引/API/版本章节。最终脚本运行满足完整读取要求。仓库规则和脚本的 PowerShell 语法、`english-check` 均通过；报告工单及源代码回归见最终集成记录。
+

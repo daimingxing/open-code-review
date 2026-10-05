@@ -41,6 +41,7 @@
 | 后端隔离配置模板 | [external-knowledge-01-config.backend.json](external-knowledge-01-config.backend.json) | 可复用模板，路径需按环境替换 |
 | 前端原生规则样例 | [external-knowledge-01-rule.frontend.json](external-knowledge-01-rule.frontend.json) | 真实模型已验证误报排除及知识读取 |
 | 后端原生规则样例 | [external-knowledge-01-rule.backend.json](external-knowledge-01-rule.backend.json) | 真实模型已验证知识读取；须检查失败时诚实语义 |
+| 最终集成版知识应用复测 | [external-knowledge-01-final.ps1](external-knowledge-01-final.ps1) | 最终源码真实模型验收入口；需要 DeepSeek 配置与真实仓库 |
 
 真实模型审查命令、提交范围、模型与服务版本及结果记录在[工单 01 复测记录](external-knowledge-01.md)和[工单 01](../../.scratch/review-report/issues/01-verify-external-knowledge.md)；配置模板不含凭据。运行边界脚本时，`TestRoot` 必须位于系统临时目录，脚本不会修改两个真实样例仓库。
 
@@ -48,7 +49,7 @@
 
 工单 03 的分支范围、Git 统计和原生兼容复测见[分支报告材料复测记录](review-report-branch-material-03.md)。
 
-工单 05 的成果、人员和知识来源复测见[成果、人员和知识来源复测记录](review-report-enrichment-05.md)（受控 MCP 与模型场景已验证，2026-10-04；知识是否被正确应用仍需真实模型证据）。
+工单 05 的成果、人员和知识来源复测见[成果、人员和知识来源复测记录](review-report-enrichment-05.md)（受控 MCP 与模型场景已验证，2026-10-04；真实知识应用由工单 01 的最终集成版前后端复测另行核对，材料的 `application_status` 不代替模型效果证据）。
 
 工单 04 的工作区快照、混合变更和原生兼容复测见[工作区报告材料复测记录](review-report-workspace-material-04.md)。
 

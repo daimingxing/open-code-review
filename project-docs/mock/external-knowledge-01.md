@@ -317,6 +317,30 @@ finally {
 
 实际执行时后端知识规则先尝试一次、发现未调用知识 MCP，随后按上述后端定向重试要求补跑。前端退出码 0，9 次工具调用无失败；后端首次退出码 0、16 次工具调用但没有知识 MCP 调用，不算效果通过。后端定向重试退出码 0，OCR 状态 `complete`，21 次工具调用、失败 0 次、总用量 177,397 tokens，其中有 4 次知识正文读取。它报告 1 条高优先级知识依赖问题及两条低优先级意见。检查 JSON 时应核对 `tool_calls` 中实际知识路径、`comments` 中结论与 `manifest` 中目标提交范围；状态 `complete` 单独不构成知识应用证据。隔离运行根在本次执行后清理，若需复核应重跑上述完整准备流程并在脚本结束前查看本地产物。
 
+## 2026-10-05 最终集成版本复测
+
+在 `feature-review-report` 的源码提交 `786f6b2d4459478f5f8e9d9108e8c21e1d08dcbe` 构建本地 OCR，并以 DeepSeek `deepseek-flash`、Node.js `v22.22.2`、filesystem MCP `2026.8.31` 分别重跑前端误报排除和后端知识依赖正例。真实仓库固定审查提交 `fd4fdae1dda41b4a6ad7193218d2585500307349`、`ab9d7dc11cc72f6413974992882aa25f8779d9a6`；知识库通过授权只读 MCP 使用，期间未修改工作区、忽略文件或未提交内容。前端规则现要求在检查代码前成功读取索引、API 章节和版本章节；只读到索引的早期复跑不算通过。
+
+可复跑入口（需 PowerShell 7、Go、Node.js/npm、上述两个本地真实仓库及提交、当前用户已有 DeepSeek 配置、可访问 npm registry；会产生模型用量）：
+
+```powershell
+& .\project-docs\mock\external-knowledge-01-final.ps1 `
+  -GoExecutable 'C:\path\to\go.exe'
+```
+
+脚本从当前源码构建 CLI，隔离复制模型配置并将 MCP 白名单限制为五项只读工具。原生结果、报告材料和日志保存在仅当前用户可读的系统临时目录；报告材料或日志可能包含审查代码，检查后使用脚本打印的精确命令删除结果目录。源配置和真实仓库均不被修改。
+
+最终脚本实跑退出码 0，两个场景均为原生 `complete`、报告知识来源 `observed`、版本 `observed`、MCP 调用失败 0。前端 20 次工具调用、4 次完整且可识别来源的文本读取，涵盖 `eplatei-knowledge.md`、`02-eiblock.md`、`05-constants-version.md`；生成 2 条 finding，没有对 `EiBlock.getMappedRows` 报缺陷，并检出 `AJXX11.js:133-134` 的真实并发覆盖问题。后端 13 次工具调用、4 次完整读取，包含两次 `02-服务调用.md` 和两次 `00-iplat4j服务端开发规范.md`；生成 3 条 finding，其中 `EiInfoCallUtil.java:14` 依据章节明确要求 `outInfo.getStatus() < 0`，指出与仅比较 `EiConstant.STATUS_FAILURE` 的差异。四种知识文件摘要见下表；重复读取返回相同摘要。
+
+| 知识文件 | SHA-256 |
+|---|---|
+| 前端 `eplatei-knowledge.md` | `89f92c11ccd3ed23da477fbd9cf24ef361069a6a3d3059cc004555a4752ab803` |
+| 前端 `eplatei-knowledge-reference/02-eiblock.md` | `a0ae70d490d2dbb91895e4c15483145853e0bb37216283fdb4515bfbcd72fa84` |
+| 前端 `eplatei-knowledge-reference/05-constants-version.md` | `ebeaf0e57d720e737d6100f4b8b73afa397fe129ef1c691597a4e66fa439edd4` |
+| 后端 `02-服务调用.md` | `86c913b0c9700f0cd16f92a925830eb4fa427e86c2bb98a680bf656bb89472b5` |
+
+报告 JSON 中 `application_status` 仍为 `not_observed`，表示程序只证明实际读取及内容摘要，不自动声称模型正确应用。上述知识应用结论通过原生 finding、对应知识章节路径和 MCP `read_text_file` 成功记录逐项交叉核对。一次更早的复跑只读取前端索引便结束，未计为通过；明确要求读取章节后的最终脚本运行满足完整读取条件。最终复测原生 JSON 和材料位于 `C:\Users\60429\AppData\Local\Temp\ocr-final-knowledge-results-6205d995c4904d4da0d8795d51f96d93\results`，有相同 ACL 保护；目录仅用于本次本地复核，检查后按脚本输出命令精确删除。
+
 ## 源码仓库检查
 
 2026-10-04 在 `feature-review-report` 的 01 集成版本 `4f37ebf` 执行。前提：PowerShell 7、Go 1.25.14、GNU Make 4.4.1 均可从 `PATH` 调用；首次运行需能下载 Go 测试依赖。当前环境访问 `proxy.golang.org` 超时，使用可访问的模块代理后通过：

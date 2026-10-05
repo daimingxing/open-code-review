@@ -2,7 +2,7 @@
   "rules": [
     {
       "path": "jkdbms-sp-f/src/views/AJ/XX/AJXX11.js",
-      "rule": "D:/WorkPlace/longruan_codeReview/jk_web/.ai_knowledge/xr-framework-usage.md\nKnowledge workflow: first read the index, then read only the relevant linked chapter(s). For this change, verify whether EiBlock.getMappedRows is supported by the declared @eplat/ei version. Cite the exact knowledge path and version in the finding. Do not report an issue when the API is documented and the code guards missing data. Use the source commit only; do not read current working-tree files."
+      "rule": "D:/WorkPlace/longruan_codeReview/jk_web/.ai_knowledge/xr-framework-usage.md\nBefore inspecting the source diff or reaching a code conclusion, use the configured knowledge MCP to list the authorized directory, read this index, and read eplatei-knowledge.md, eplatei-knowledge-reference/02-eiblock.md, and eplatei-knowledge-reference/05-constants-version.md. Do not conclude until those reads succeed; if a read fails or is partial, state that limitation and do not claim the chapter was read. For this change, verify whether EiBlock.getMappedRows is supported by the declared @eplat/ei version. Cite the exact knowledge path and version. Do not report an issue when the API is documented and the code guards missing data. Use the source commit only; do not read current working-tree files."
     }
   ]
 }

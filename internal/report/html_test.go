@@ -126,7 +126,7 @@ func TestValidateHTMLDocumentRequiresSemanticLabelsForMarkerlessStatistics(t *te
 		}
 	})
 	t.Run("natural Chinese synonym", func(t *testing.T) {
-		synonym := strings.Replace(content, "<span>Total findings</span><strong>3</strong>", "<span>问题合计</span><strong>3</strong>", 1)
+		synonym := strings.Replace(content, "<span>Total findings</span><strong>3</strong>", "<span>问题合计</span><strong>3</strong>", 1) // allow-non-english: verifies natural Chinese statistic labels
 		if synonym == content {
 			t.Fatal("fixture did not contain the finding-count statistic")
 		}
@@ -136,16 +136,16 @@ func TestValidateHTMLDocumentRequiresSemanticLabelsForMarkerlessStatistics(t *te
 	})
 	t.Run("description list labels and values", func(t *testing.T) {
 		descriptionList := markerlessHTMLDescriptionStatistics(validHTMLDocument(material), material, map[string]string{
-			"finding-count":      "问题合计",
-			"risk-critical":      "严重",
-			"risk-high":          "高风险",
-			"risk-medium":        "中风险",
-			"risk-low":           "低风险",
-			"coverage-selected":  "纳入检查",
-			"coverage-completed": "已完成",
-			"coverage-failed":    "失败",
-			"coverage-skipped":   "跳过",
-			"coverage-reused":    "复用",
+			"finding-count":      "问题合计", // allow-non-english: verifies natural Chinese statistic labels
+			"risk-critical":      "严重",   // allow-non-english: verifies natural Chinese statistic labels
+			"risk-high":          "高风险",  // allow-non-english: verifies natural Chinese statistic labels
+			"risk-medium":        "中风险",  // allow-non-english: verifies natural Chinese statistic labels
+			"risk-low":           "低风险",  // allow-non-english: verifies natural Chinese statistic labels
+			"coverage-selected":  "纳入检查", // allow-non-english: verifies natural Chinese statistic labels
+			"coverage-completed": "已完成",  // allow-non-english: verifies natural Chinese statistic labels
+			"coverage-failed":    "失败",   // allow-non-english: verifies natural Chinese statistic labels
+			"coverage-skipped":   "跳过",   // allow-non-english: verifies natural Chinese statistic labels
+			"coverage-reused":    "复用",   // allow-non-english: verifies natural Chinese statistic labels
 		})
 		if err := ValidateHTMLDocument(descriptionList, material); err != nil {
 			t.Fatalf("ValidateHTMLDocument rejected statistics in a description list: %v", err)
