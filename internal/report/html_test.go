@@ -53,22 +53,24 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 		t.Fatalf("HTML with alternate Chinese headings and labels was rejected: %v", err)
 	}
 
-	withoutStatMarkers := content
-	for _, name := range []string{
-		"finding-count", "risk-critical", "risk-high", "risk-medium", "risk-low",
-		"coverage-selected", "coverage-completed", "coverage-failed", "coverage-skipped", "coverage-reused",
-	} {
-		withoutStatMarkers = strings.Replace(withoutStatMarkers, ` data-stat="`+name+`"`, "", 1)
-	}
+	withoutStatMarkers := markerlessHTMLStatistics(content, material, map[string]string{
+		"finding-count":      "Total findings",
+		"risk-critical":      "Critical findings",
+		"risk-high":          "High risk",
+		"risk-medium":        "Medium risk",
+		"risk-low":           "Low risk",
+		"coverage-selected":  "Selected checks",
+		"coverage-completed": "Completed checks",
+		"coverage-failed":    "Failed checks",
+		"coverage-skipped":   "Skipped checks",
+		"coverage-reused":    "Reused checks",
+	})
 	if err := ValidateHTMLDocument(withoutStatMarkers, material); err != nil {
 		t.Fatalf("visible statistics without optional data-stat markers were rejected: %v", err)
 	}
 	withoutVisibleStat := strings.Replace(content, `<output data-stat="risk-critical">1</output>`, "", 1)
 	if withoutVisibleStat == content {
 		t.Fatal("fixture did not contain the critical-risk statistic")
-	}
-	if strings.Contains(withoutVisibleStat, `data-stat="risk-critical"`) {
-		t.Fatal("fixture retained the critical-risk statistic marker")
 	}
 	if err := ValidateHTMLDocument(withoutVisibleStat, material); err == nil {
 		t.Fatal("ValidateHTMLDocument accepted a missing visible risk statistic")
@@ -90,6 +92,98 @@ func TestValidateHTMLDocumentChecksFindingsRiskCountsAndSections(t *testing.T) {
 				t.Fatalf("visible Chinese finding summary without a data-fact marker was rejected: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateHTMLDocumentRequiresSemanticLabelsForMarkerlessStatistics(t *testing.T) {
+	material := validHTMLMaterial()
+	material.Findings = material.Findings[:3]
+	content := markerlessHTMLStatistics(validHTMLDocument(material), material, map[string]string{
+		"finding-count":      "Total findings",
+		"risk-critical":      "Critical findings",
+		"risk-high":          "High risk",
+		"risk-medium":        "\u4e2d\u98ce\u9669",
+		"risk-low":           "Low",
+		"coverage-selected":  "Selected checks",
+		"coverage-completed": "\u5df2\u5b8c\u6210",
+		"coverage-failed":    "Failed checks",
+		"coverage-skipped":   "\u8df3\u8fc7",
+		"coverage-reused":    "Reused checks",
+	})
+
+	t.Run("correct labels", func(t *testing.T) {
+		if err := ValidateHTMLDocument(content, material); err != nil {
+			t.Fatalf("ValidateHTMLDocument rejected markerless statistics with semantic labels: %v", err)
+		}
+	})
+	t.Run("label and value share a text node", func(t *testing.T) {
+		singleTextNode := strings.Replace(content, `<div><span>Failed checks</span><strong>0</strong></div>`, `<p>Failed checks: 0</p>`, 1)
+		if singleTextNode == content {
+			t.Fatal("fixture did not contain the failed-coverage statistic")
+		}
+		if err := ValidateHTMLDocument(singleTextNode, material); err != nil {
+			t.Fatalf("ValidateHTMLDocument rejected a statistic label and value in one text node: %v", err)
+		}
+	})
+	t.Run("natural Chinese synonym", func(t *testing.T) {
+		synonym := strings.Replace(content, "<span>Total findings</span><strong>3</strong>", "<span>问题合计</span><strong>3</strong>", 1)
+		if synonym == content {
+			t.Fatal("fixture did not contain the finding-count statistic")
+		}
+		if err := ValidateHTMLDocument(synonym, material); err != nil {
+			t.Fatalf("ValidateHTMLDocument rejected a natural Chinese statistic synonym: %v", err)
+		}
+	})
+	t.Run("description list labels and values", func(t *testing.T) {
+		descriptionList := markerlessHTMLDescriptionStatistics(validHTMLDocument(material), material, map[string]string{
+			"finding-count":      "问题合计",
+			"risk-critical":      "严重",
+			"risk-high":          "高风险",
+			"risk-medium":        "中风险",
+			"risk-low":           "低风险",
+			"coverage-selected":  "纳入检查",
+			"coverage-completed": "已完成",
+			"coverage-failed":    "失败",
+			"coverage-skipped":   "跳过",
+			"coverage-reused":    "复用",
+		})
+		if err := ValidateHTMLDocument(descriptionList, material); err != nil {
+			t.Fatalf("ValidateHTMLDocument rejected statistics in a description list: %v", err)
+		}
+	})
+
+	t.Run("swapped severity values", func(t *testing.T) {
+		swapped := strings.Replace(content, "<span>\u4e2d\u98ce\u9669</span><strong>1</strong>", "<span>\u4e2d\u98ce\u9669</span><strong>0</strong>", 1)
+		swapped = strings.Replace(swapped, `<span>Low</span><strong>0</strong>`, `<span>Low</span><strong>1</strong>`, 1)
+		if swapped == content {
+			t.Fatal("fixture did not contain the expected medium and low statistics")
+		}
+		if err := ValidateHTMLDocument(swapped, material); err == nil {
+			t.Fatal("ValidateHTMLDocument accepted severity counts associated with the wrong labels")
+		}
+	})
+
+	t.Run("unlabelled value", func(t *testing.T) {
+		unlabelled := strings.Replace(content, `<span>Critical findings</span><strong>1</strong>`, `<span>Unlabelled</span><strong>1</strong>`, 1)
+		if unlabelled == content {
+			t.Fatal("fixture did not contain the critical-risk statistic")
+		}
+		if err := ValidateHTMLDocument(unlabelled, material); err == nil {
+			t.Fatal("ValidateHTMLDocument accepted a markerless statistic without a semantic label")
+		}
+	})
+}
+
+func TestValidateHTMLDocumentDoesNotExemptStatisticCountsFromUnrelatedClaims(t *testing.T) {
+	material := validHTMLMaterial()
+	for index := range material.Findings {
+		material.Findings[index].StartLine += 100
+		material.Findings[index].EndLine += 100
+	}
+	content := validHTMLDocument(material)
+	content = strings.Replace(content, `</section><section data-section="governance"`, `<p>Avery made 4 commits.</p></section><section data-section="governance"`, 1)
+	if err := ValidateHTMLDocument(content, material); err == nil || !strings.Contains(err.Error(), "unsupported numeric claim") {
+		t.Fatalf("ValidateHTMLDocument() = %v, want unsupported numeric claim rejection", err)
 	}
 }
 
@@ -390,6 +484,28 @@ func validHTMLModelDocument(material Material) string {
 	}
 	builder.WriteString(`</main></body></html>`)
 	return builder.String()
+}
+
+func markerlessHTMLStatistics(document string, material Material, labels map[string]string) string {
+	for name, count := range htmlStatisticCounts(material) {
+		marked := fmt.Sprintf(`<output data-stat="%s">%d</output>`, name, count)
+		unmarked := fmt.Sprintf(`<div><span>%s</span><strong>%d</strong></div>`, labels[name], count)
+		document = strings.Replace(document, marked, unmarked, 1)
+	}
+	return document
+}
+
+func markerlessHTMLDescriptionStatistics(document string, material Material, labels map[string]string) string {
+	var marked, descriptionList strings.Builder
+	for _, name := range []string{
+		"finding-count", "risk-critical", "risk-high", "risk-medium", "risk-low",
+		"coverage-selected", "coverage-completed", "coverage-failed", "coverage-skipped", "coverage-reused",
+	} {
+		count := htmlStatisticCounts(material)[name]
+		fmt.Fprintf(&marked, `<output data-stat="%s">%d</output>`, name, count)
+		fmt.Fprintf(&descriptionList, `<dt>%s</dt><dd>%d</dd>`, labels[name], count)
+	}
+	return strings.Replace(document, marked.String(), `<dl>`+descriptionList.String()+`</dl>`, 1)
 }
 
 func appendMaterialFacts(builder *strings.Builder, facts map[string]string, section string) {
