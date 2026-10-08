@@ -17,3 +17,4 @@
 | 单份 HTML 报告 | [HTML 事实与离线浏览器记录](review-report-2026-10/html-report-single.md) |
 | 多份 HTML 报告 | [多输入汇总与归属记录](review-report-2026-10/html-report-multi.md) |
 | 长报告与阅读体验 | [预算、重试、交互和最终集成验收](review-report-2026-10/html-report-experience.md) |
+| 旧的 HTML 观察材料 | [脚本与虚构输入的归档说明](review-report-2026-10/manual-sample/README.md) |
