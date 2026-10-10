@@ -4,7 +4,7 @@
 
 ## 前提
 
-- Windows、PowerShell 7 和 Go 已安装；命令在仓库根目录执行。
+- Windows、PowerShell 7，以及已加入系统 PATH 的全局 Go；命令在仓库根目录执行。新开终端后 `go version` 能打印出版本再开始，不要指定便携工具链或 `go.exe` 的绝对路径。
 - 本机已经配置可用的模型服务。若尚未配置，先运行构建出的 CLI 的 `config provider` 和 `config model`；也可以按 `ocr config --help` 中的非交互示例配置。
 - 准备一个要审查的 Git 仓库，并确认当前账号有权读取它和使用模型服务。
 
@@ -17,10 +17,9 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Get-Location).Path
 $dist = Join-Path $repoRoot 'dist'
 $binary = Join-Path $dist 'ocr-local.exe'
-$go = (Get-Command go -ErrorAction Stop).Source
 
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-& $go build -trimpath -o $binary ./cmd/opencodereview
+go build -trimpath -o $binary ./cmd/opencodereview
 if ($LASTEXITCODE -ne 0) { throw 'CLI 构建失败' }
 
 & $binary --version
@@ -28,7 +27,7 @@ if ($LASTEXITCODE -ne 0) { throw 'CLI 构建失败' }
 $cli = (Resolve-Path -LiteralPath $binary).Path
 ```
 
-如果系统中有多个 Go 版本，把 `$go` 换成实际的 `go.exe` 完整路径即可。`--version` 和 `report --help` 都能正常返回，才进入下一步。
+`--version` 和 `report --help` 都能正常返回，才进入下一步。构建使用 PATH 中的全局 `go`，不要改成某个 `go.exe` 的绝对路径。
 
 ## 2. 配置模型服务（首次需要）
 

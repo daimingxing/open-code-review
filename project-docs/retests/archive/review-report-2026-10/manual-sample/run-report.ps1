@@ -2,7 +2,6 @@
 param(
     [Parameter(Mandatory)]
     [string] $MaterialPath,
-    [Parameter(Mandatory)]
     [string] $GoExecutable
 )
 
@@ -13,6 +12,9 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $inputPath = (Resolve-Path -LiteralPath $MaterialPath).Path
+if ([string]::IsNullOrWhiteSpace($GoExecutable)) {
+    $GoExecutable = (Get-Command go -ErrorAction Stop).Source
+}
 if (-not (Test-Path -LiteralPath $GoExecutable -PathType Leaf)) {
     throw "找不到 Go 可执行文件：$GoExecutable"
 }

@@ -15,12 +15,10 @@ PowerShell 7，在仓库根目录执行：
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location 'D:\WorkPlace\open-code-review-worktrees\review-report-05-enrich'
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;' + $env:PATH
 go test ./cmd/opencodereview ./internal/mcp -run 'TestReviewE2E_Report(RecordsMCPServerStartFailure|DoesNotRecordIssueMCPFailureAsKnowledgeFailure|RecordsMissingConfiguredKnowledgeTool|RecordsActualMCPContentVersionChanges|RecordsRemoteMCPReadWithUnknownSource)|TestProvider.*|TestRegisterAll.*' -count=1
 go test ./...
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
-$make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
-& $make check
+$env:PATH = 'C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
+make check
 ```
 
 ## 通过条件

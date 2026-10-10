@@ -6,14 +6,13 @@
 
 验证 `ocr review --from <ref> --to <ref> --report` 使用原生 merge-base 和解析后的目标提交，报告材料同时保留原始引用、最终净差异、逐提交累计、Git 作者/提交者和原生覆盖集合；验证未传 `--report` 时原生输出不变。
 
-在 PowerShell 7、Go 1.25.14、Git 和仓库依赖可用的环境中，从仓库根目录运行。测试使用临时 Git 仓库和仓库内受控模型服务，不代表真实模型或外部知识服务效果。
+在 PowerShell 7、PATH 中的全局 Go 与 Make、Git 和仓库依赖可用的环境中，从仓库根目录运行。当时验收为 Go 1.25.14。测试使用临时 Git 仓库和仓库内受控模型服务，不代表真实模型或外部知识服务效果。
 
 ## 复测命令
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location 'D:\WorkPlace\open-code-review'
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;' + $env:PATH
 git switch feature-review-report
 go test ./cmd/opencodereview -run 'Test(DefaultReportPathIncludesSanitizedRangeLabelsAndStartTime|CollectBranchGitStatisticsUsesResolvedRangeAndDistinctGitActors|ReviewE2E_ReportRangeUsesMergeBaseAndPreservesNativeCoverage|ReviewE2E_RangeWithoutReportKeepsNativeBehavior)' -count=1
 ```
@@ -23,9 +22,8 @@ go test ./cmd/opencodereview -run 'Test(DefaultReportPathIncludesSanitizedRangeL
 ```powershell
 go test ./... -count=1
 go vet ./...
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
-$make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
-& $make check
+$env:PATH = 'C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
+make check
 ```
 
 ## 通过条件

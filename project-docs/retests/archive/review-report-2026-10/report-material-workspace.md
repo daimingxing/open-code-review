@@ -6,25 +6,23 @@
 
 验证 `ocr review --report` 在工作区模式下记录审查启动时的 HEAD、暂存/未暂存、未跟踪和删除状态，并将快照摘要绑定原生 `SourceArtifactSHA256`；验证干净工作区的零文件事实、默认 `workspace` 命名，以及未启用报告时原生行为不变。
 
-在 PowerShell 7、Go 1.25.14、Git 和仓库依赖可用的环境中，从仓库根目录运行。自动化测试使用临时 Git 仓库和仓库内受控模型服务，不代表真实模型效果。
+在 PowerShell 7、PATH 中的全局 Go 与 Make、Git 和仓库依赖可用的环境中，从仓库根目录运行。当时验收为 Go 1.25.14。自动化测试使用临时 Git 仓库和仓库内受控模型服务，不代表真实模型效果。
 
 ## 复测命令
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location 'D:\WorkPlace\open-code-review-worktrees\review-report-04-workspace'
-$go = 'D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe'
-& $go test ./cmd/opencodereview -run 'Test(ParseWorkspaceStatus|ReviewE2E_WorkspaceReport|DefaultReportPathUsesWorkspaceLabel)' -count=1
-& $go test ./... -count=1
-& $go vet ./...
+go test ./cmd/opencodereview -run 'Test(ParseWorkspaceStatus|ReviewE2E_WorkspaceReport|DefaultReportPathUsesWorkspaceLabel)' -count=1
+go test ./... -count=1
+go vet ./...
 ```
 
 运行仓库静态检查：
 
 ```powershell
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
-$make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
-& $make check
+$env:PATH = 'C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
+make check
 ```
 
 ## 通过条件

@@ -4,7 +4,7 @@
 
 ## 测试目的与前提
 
-- 在工单工作树的 PowerShell 7 中执行，源码分支为 `codex/review-report-08-multi`；本次差异以 `97e1cf80abb0871b78425c357c85842417d00d52` 为基线。Go 使用 `D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe`（Go 1.25.14）。
+- 在工单工作树的 PowerShell 7 中执行，源码分支为 `codex/review-report-08-multi`；本次差异以 `97e1cf80abb0871b78425c357c85842417d00d52` 为基线。Go 使用 PATH 中的全局 `go`（当时为 Go 1.25.14）。
 - CLI 测试以受控 HTTP 模型响应生成三单元报告：包含同仓库不同/重叠范围、另一仓库、完整与部分状态、不同仓库的重复问题 ID、一个邮箱一致的作者别名对、两条无邮箱同名身份。测试另验证重排、不同路径重复材料在模型请求前拒绝、没有合并 JSON、失败不发布以及后续成功重试。
 - 第一单元含一条 `SeverityStatus=not_collected` 的真实 finding；HTML 必须保留该问题并显示单独的“未提供等级数量”汇总事实，不能把它记为任一已知等级或丢弃。
 - HTML 使用已安装的 Edge `154.0.4258.53` 与工作区捆绑的 Playwright 1.62.1（通过 `NODE_PATH` 加载），以 `file:` URL 直接打开，不访问网络服务。
@@ -16,7 +16,7 @@
 
 ```powershell
 Set-Location 'C:\Users\60429\.codex\worktrees\review-report-08-multi\open-code-review'
-$go = 'D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe'
+$go = (Get-Command go -ErrorAction Stop).Source
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ocr-report-08-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 $env:OCR_MULTI_REPORT_HTML_EVIDENCE_FILE = Join-Path $tempRoot 'ordered.html'

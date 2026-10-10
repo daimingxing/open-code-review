@@ -6,7 +6,7 @@
 
 - 在既有报告材料上生成单份中文 HTML，不重新审查；拒绝不兼容输入、改写统计或材料外事实，失败时不得留下最终文件。
 - 使用仓库内测试的受控 OpenAI 兼容 HTTP 服务，不访问真实模型或外部网络。长报告夹具包含 60 条 finding、四级风险、部分审查状态、知识未采集和需要 HTML 转义的证据文本；每条 finding 展示 11 个带固定中文标签的事实行。
-- 在 PowerShell 7、Go `go1.25.14` 下，从本工单工作树运行；代码基线为 `dbfa92dc4f8a890c1ef3b17191d4b56b03840d18`。
+- 在 PowerShell 7 和 PATH 中的全局 Go 下，从本工单工作树运行；当时验收为 Go `go1.25.14`。代码基线为 `dbfa92dc4f8a890c1ef3b17191d4b56b03840d18`。
 - 浏览器使用安装版 Microsoft Edge `154.0.4258.53` 和运行时捆绑的 Playwright（通过 `NODE_PATH` 加载），以 `file:` URL 直接打开临时 HTML。
 
 ## 复测命令
@@ -14,7 +14,7 @@
 在工单工作树的 PowerShell 7 中执行。第一条聚焦命令会把成功生成的受控报告另存到独立临时目录，供 Edge 打开；目录包含合成测试数据，不应作为真实审查报告分享。
 
 ```powershell
-$go = 'D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe'
+$go = (Get-Command go -ErrorAction Stop).Source
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ocr-report-07-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 $env:OCR_REPORT_HTML_EVIDENCE_FILE = Join-Path $tempRoot 'report.html'

@@ -1,5 +1,4 @@
 param(
-    [Parameter(Mandatory)]
     [string] $GoExecutable
 )
 
@@ -161,6 +160,9 @@ foreach ($path in @($frontendRepo, $backendRepo, $sourceConfigPath,
 }
 Assert-TargetCommit $frontendRepo 'fd4fdae1dda41b4a6ad7193218d2585500307349'
 Assert-TargetCommit $backendRepo 'ab9d7dc11cc72f6413974992882aa25f8779d9a6'
+if ([string]::IsNullOrWhiteSpace($GoExecutable)) {
+    $GoExecutable = (Get-Command go -ErrorAction Stop).Source
+}
 if (-not (Test-Path -LiteralPath $GoExecutable)) {
     throw "Go executable is unavailable: $GoExecutable"
 }

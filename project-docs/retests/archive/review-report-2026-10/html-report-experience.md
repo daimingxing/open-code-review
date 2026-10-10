@@ -16,12 +16,12 @@ HTML 是模型生成的初版报告，不要求匹配固定样式、标题、标
 
 ## 前提与受控 CLI
 
-使用 PowerShell 7、Go 1.25.14。以下命令在工单工作树运行，不调用真实模型。四份合成浏览器材料包含短/长、单/多份；长单份有 60 条问题及长证据、中文说明，长多份有 60 条问题和不同审查单元。
+使用 PowerShell 7 和 PATH 中的全局 Go。当时验收为 Go 1.25.14。以下命令在工单工作树运行，不调用真实模型。四份合成浏览器材料包含短/长、单/多份；长单份有 60 条问题及长证据、中文说明，长多份有 60 条问题和不同审查单元。
 
 ```powershell
 Set-Location 'C:\Users\60429\.codex\worktrees\review-report-09-experience\open-code-review'
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw '需要 PowerShell 7' }
-$go = 'D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe'
+$go = (Get-Command go -ErrorAction Stop).Source
 $env:GOPROXY = 'https://goproxy.cn,direct'
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ocr-report-09-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
@@ -62,12 +62,12 @@ Get-Item (Join-Path $tempRoot 'browser-summary.json') | Select-Object FullName,L
 
 ## 真实模型：只复用已有材料
 
-前提是 PowerShell 7、Go 1.25.14、资源索引指定的前端材料，以及隔离目录中已有的 DeepSeek 配置均可用；配置不复制、不回显。命令会真实调用模型，输出名使用 GUID，不覆盖旧产物。真实服务可能计费并受服务端速率限制。
+前提是 PowerShell 7、PATH 中的全局 Go、资源索引指定的前端材料，以及隔离目录中已有的 DeepSeek 配置均可用；配置不复制、不回显。命令会真实调用模型，输出名使用 GUID，不覆盖旧产物。真实服务可能计费并受服务端速率限制。
 
 ```powershell
 Set-Location 'D:\WorkPlace\open-code-review'
 if ((git branch --show-current) -ne 'feature-review-report') { throw '请在 feature-review-report 集成分支执行' }
-$go = 'D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe'
+$go = (Get-Command go -ErrorAction Stop).Source
 $liveRoot = 'C:\Users\60429\AppData\Local\Temp\ocr-review-report-live-11fe67599dc746d6add6daab79ec12b8'
 $inputPath = Join-Path $liveRoot 'results\frontend-report.json'
 if (!(Test-Path -LiteralPath $inputPath)) { throw '缺少既有报告材料' }
@@ -114,13 +114,10 @@ git show e66aeaef2c4f554b0f36ed788d47bbc9fab56237:cmd/opencodereview/progress_st
 
 最终集成代码提交为 `3e069f6f9d6f16d2c9e37d7a3fd311c1478f1cd6`，相对 `dev` 的基点为 `d50f4dc2502edc510e2673b495ad4ac99871eedb`。独立审查覆盖 `dev...feature-review-report` 全部差异；审查者复查了前后端真实模型知识结果，确认工单 01 的实际知识读取及对应 finding 证据充分，并复核了此前发现的问题已修复。最终结论无阻塞。
 
-前提：PowerShell 7、仓库根目录、Go 1.25.14。审查者在上述集成代码版本使用 `D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe` 执行并通过；重跑时可预先将 `$go` 设为本机路径，否则命令从 `PATH` 查找：
+前提：PowerShell 7、仓库根目录、PATH 中的全局 Go 1.25+。当时验收使用 Go 1.25.14；重跑从 PATH 查找 `go`：
 
 ```powershell
-if ([string]::IsNullOrWhiteSpace($go) -or -not (Test-Path -LiteralPath $go)) {
-    $go = (Get-Command go -ErrorAction Stop).Source
-}
-if ((& $go version) -notmatch 'go1.25.14') { throw '需要 Go 1.25.14' }
+$go = (Get-Command go -ErrorAction Stop).Source
 & $go test ./... -count=1 -timeout=15m
 if ($LASTEXITCODE -ne 0) { throw '全量 Go 测试失败' }
 & $go vet ./internal/report ./internal/mcp ./cmd/opencodereview

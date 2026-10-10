@@ -12,7 +12,6 @@ PowerShell 7，在仓库根目录执行：
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;' + $env:PATH
 go version
 go test ./internal/report -run 'TestWriteMaterial' -count=1
 go test ./cmd/opencodereview -run 'TestReviewE2E_Report(SaveFailurePreservesNativeOutput|PartialAndFailedOutcomesAcrossModes|TimeoutPreservesPartialOutcomeAcrossModes|TokenBudgetFailureIsNotSuccessAcrossModes|SkippedIsNotAnEmptySuccessfulReview|ResumePreservesIdentityAndScope|DoesNotAddWorkspaceResume|KnowledgeFailurePreservesCodeFinding|MarksRestrictedMCPReadPartial)$' -count=1
@@ -22,10 +21,9 @@ go test ./cmd/opencodereview -run 'TestReviewE2E_Report(SaveFailurePreservesNati
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
+$env:PATH = 'C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
 go test ./... -count=1
-$make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
-& $make check
+make check
 ```
 
 ## 通过条件

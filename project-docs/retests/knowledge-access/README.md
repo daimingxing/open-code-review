@@ -35,11 +35,10 @@ Linux 真符号链接检查另需 Podman machine、容器镜像和 npm 网络，
 
 ## 真实知识应用
 
-需要 Go、Node.js/npm、可访问 npm registry、已授权的 DeepSeek 配置，以及[资源索引](../../review-resources.md)所列前后端仓库、知识目录和固定提交。它会只读样例仓库、调用真实模型，并在 ACL 保护的临时目录中保存结果：
+需要 PATH 中的全局 Go、Node.js/npm、可访问 npm registry、已授权的 DeepSeek 配置，以及[资源索引](../../review-resources.md)所列前后端仓库、知识目录和固定提交。它会只读样例仓库、调用真实模型，并在 ACL 保护的临时目录中保存结果：
 
 ```powershell
-& ./project-docs/retests/knowledge-access/run-live-review.ps1 `
-  -GoExecutable 'D:\WorkPlace\toolchains\go1.25.14\go\bin\go.exe'
+& ./project-docs/retests/knowledge-access/run-live-review.ps1
 ```
 
 预期两个审查完成，知识来源及版本状态为 `observed`，MCP 调用失败数为 0；是否实际应用知识还须对照 findings 与成功读取记录。复测配置模板和规则分别位于 `configs/`、`rules/`。本次运行证据与未验证限制见[验收档案索引](../archive/README.md)。

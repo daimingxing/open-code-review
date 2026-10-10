@@ -6,7 +6,7 @@
 
 验证 `ocr review` 的可选独立 JSON 报告材料、原生输出兼容、事实与缺失状态校验、路径安全和失败保留行为。CLI 端到端测试使用临时 Git 仓库及仓库内可控测试模型服务；这些测试不需要模型凭据，也不代替真实模型或外部知识服务的效果验收。
 
-复测使用 PowerShell 7、Go 1.25.14 和 `feature-review-report` 集成分支。先切换到包含下方“源码提交”字段所列提交的集成版本；工作区应干净。测试依赖首次下载需要可访问 Go module proxy。`make check` 还需要仓库支持的 Make、Git Bash 和 Go 位于 `PATH`。
+复测使用 PowerShell 7、PATH 中的全局 Go 与 Make，以及 `feature-review-report` 集成分支。当时验收为 Go 1.25.14。先切换到包含下方“源码提交”字段所列提交的集成版本；工作区应干净。测试依赖首次下载需要可访问 Go module proxy。`make check` 还需要 Git Bash 和 Go 位于 `PATH`。
 
 ## 命令
 
@@ -39,18 +39,16 @@ go vet ./...
 仓库标准检查会整理模块、格式化和运行 vet：
 
 ```powershell
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
-$make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
-& $make check
+$env:PATH = 'C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
+make check
 ```
 
 仓库标准 race 测试需要启用 CGO，并在 `PATH` 中提供可用的 GCC 兼容 C 编译器：
 
 ```powershell
-$env:PATH = 'D:\WorkPlace\toolchains\go1.25.14\go\bin;C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
+$env:PATH = 'C:\Program Files\Git\bin;C:\Program Files\Git\usr\bin;' + $env:PATH
 $env:CGO_ENABLED = '1'
-$make = 'D:\WorkPlace\toolchains\make-4.4.1\bin\make.exe'
-& $make test
+make test
 ```
 
 ## 预期与验收
