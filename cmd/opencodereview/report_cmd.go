@@ -22,10 +22,10 @@ import (
 )
 
 const (
-	maxReportInputTokens             = 128000
-	maxReportVisibleOutputTokens     = 36864
-	maxReportAttemptCompletionTokens = 98304
-	maxReportTotalOutputTokens       = 196608
+	maxReportInputTokens             = 200000
+	maxReportVisibleOutputTokens     = 128000
+	maxReportAttemptCompletionTokens = 128000
+	maxReportTotalOutputTokens       = 256000
 	maxReportDuration                = 10 * time.Minute
 	maxReportHTMLAttempts            = 3
 )
@@ -45,7 +45,7 @@ func newReportCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "report",
 		Short:        "Generate an offline HTML report from report material",
-		Long:         "Generate an offline HTML report from existing report material. Generation is limited to 3 attempts and 10 minutes, with at most 36,864 visible output tokens per attempt, 98,304 provider completion tokens per request, and 196,608 completion tokens across the entire stage.",
+		Long:         "Generate an offline HTML report from existing report material. Generation is limited to 3 attempts and 10 minutes, with at most 128,000 visible output tokens per attempt, 128,000 provider completion tokens per request, and 256,000 completion tokens across the entire stage.",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {

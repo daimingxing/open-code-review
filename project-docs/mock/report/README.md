@@ -113,11 +113,7 @@ notepad "$env:USERPROFILE\.opencodereview\config.json"
 服务配置决定允许读取哪里，审查规则或背景决定何时读取、读什么。先使用下面的产品命令尝试真实读取；背景正文用于首次验证阅读链路，正式审查可改用已整理的 `--rule` 规则。
 
 ```powershell
-& $cli review `
-  --repo 'D:\WorkPlace\longruan_codeReview\jk_web' `
-  --commit HEAD `
-  --background '请先通过 jk_web_knowledge 文件 MCP 读取 D:/WorkPlace/longruan_codeReview/jk_web/.ai_knowledge/xr-framework-usage.md 索引，再根据本次变更读取相关章节。涉及 XR/EiInfo/EF* 契约时结合知识库核对；读取失败或依据不足时明确说明限制。' `
-  --report
+& $cli review --repo 'D:\WorkPlace\longruan_codeReview\jk_web' --commit HEAD --background '请先通过 jk_web_knowledge 文件 MCP 读取 D:/WorkPlace/longruan_codeReview/jk_web/.ai_knowledge/xr-framework-usage.md 索引，再根据本次变更读取相关章节。涉及 XR/EiInfo/EF* 契约时结合知识库核对；读取失败或依据不足时明确说明限制。' --report
 ```
 
 本次命令审查最新提交；要验证框架知识实际应用，应选择包含相关代码变更的提交或分支。命令结束后使用输出提示的 `*.report.json` 路径查看实际读取记录：
