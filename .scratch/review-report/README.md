@@ -23,8 +23,6 @@
 
 ## 共同执行约定
 
-工单 10 的提交 `f881790` 实施后审查见[智能体循环审查与修复要求](agent-loop-review-and-repair.md)。第 1–5 项及注释整理已按该文件修复，证据写入[工单 10](issues/10-refactor-html-report-agent-loop.md)；真实模型效果仍未验证。
-
 - 真实项目效果验收使用[长期资源索引](../../project-docs/review-resources.md)中的仓库与资料，不各自维护路径副本；开发中可复用的命令和实际结果记录到[开发复测目录](../../project-docs/retests/README.md)，人工验收材料放在[人工验收目录](../../project-docs/mock/README.md)。
 - 仅启动前置工单均已验收完成的任务。Status 表示分诊状态，ready-for-agent 不表示其依赖已完成或功能已交付；执行结论与证据记录在对应工单，讨论写入 Comments。
 - 每张工单自行交付可验证行为、相应测试与必要使用说明。06 和 09 各有新的用户行为，不是替前序工单统一补测试。
