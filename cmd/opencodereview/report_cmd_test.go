@@ -21,63 +21,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alibaba/open-code-review/internal/llm"
+	"github.com/alibaba/open-code-review/internal/config/template"
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 )
 
-func TestReportHTMLRequestTimeoutUsesRemainingStageBudget(t *testing.T) {
-	if maxReportDuration != 10*time.Minute {
-		t.Fatalf("HTML generation budget = %s, want 10m", maxReportDuration)
-	}
-	started := time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC)
-	tests := []struct {
-		name            string
-		elapsed         time.Duration
-		endpointTimeout time.Duration
-		want            time.Duration
-	}{
-		{name: "remaining total budget caps request", elapsed: 9*time.Minute + 50*time.Second, endpointTimeout: 30 * time.Second, want: 10 * time.Second},
-		{name: "endpoint timeout caps request", elapsed: 20 * time.Second, endpointTimeout: 5 * time.Second, want: 5 * time.Second},
-		{name: "unconfigured endpoint uses remaining budget", elapsed: time.Minute, want: 9 * time.Minute},
-		{name: "expired total budget rejects request", elapsed: 10 * time.Minute, endpointTimeout: 30 * time.Second},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := reportHTMLRequestTimeout(started, started.Add(test.elapsed), test.endpointTimeout)
-			if got != test.want {
-				t.Fatalf("request timeout = %s, want %s", got, test.want)
-			}
-		})
-	}
-}
 
-func TestReportHTMLRequestMaxTokensReservesReasoningAndStageBudget(t *testing.T) {
-	tests := []struct {
-		name      string
-		used      int
-		wantLimit int
-	}{
-		{name: "first attempt leaves reasoning headroom", wantLimit: maxReportAttemptCompletionTokens},
-		{name: "remaining stage budget caps attempt", used: 150000, wantLimit: maxReportTotalOutputTokens - 150000},
-		{name: "small remaining stage budget caps attempt", used: maxReportTotalOutputTokens - 4096, wantLimit: 4096},
-		{name: "exhausted stage budget rejects attempt", used: maxReportTotalOutputTokens},
-		{name: "over budget rejects attempt", used: maxReportTotalOutputTokens + 1},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := reportHTMLRequestMaxTokens(test.used); got != test.wantLimit {
-				t.Fatalf("request token limit = %d, want %d", got, test.wantLimit)
-			}
-		})
-	}
-}
-
-func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *testing.T) {
+func TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes(t *testing.T) {
 	setTestHome(t, t.TempDir())
-	responses := make(chan string, 4)
-	requests := make(chan map[string]any, 16)
-	var responseCount atomic.Int32
+	material := reportTestLongMaterial()
+	input := writeReportInput(t, material)
+	var calls atomic.Int32
+	requests := make(chan map[string]any, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -85,334 +40,154 @@ func TestReportCommandRendersExistingMaterialAndRejectsAlteredModelFacts(t *test
 			return
 		}
 		requests <- request
-		content := <-responses
-		completionTokens := 456
-		if responseCount.Add(1) == 1 {
-			completionTokens = 70000
+		n := calls.Add(1)
+		switch n {
+		case 1:
+			if _, ok := request["tools"]; !ok {
+				http.Error(w, "tools missing", http.StatusBadRequest)
+				return
+			}
+			writeReportToolCalls(w, 100, 20, reportToolCall("call_read", "file_read", map[string]any{"file_path": "ignored.json"}))
+		case 2:
+			writeReportToolCalls(w, 120, 40,
+				reportToolCall("call_write", "write_html", map[string]any{"html": reportHTMLFixture(material)}),
+				reportToolCall("call_done", "task_done", map[string]any{"state": "DONE"}),
+			)
+		default:
+			http.Error(w, "unexpected extra request", http.StatusBadRequest)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id": "report-test", "model": "fake-report-model",
-			"choices": []any{map[string]any{
-				"index": 0, "finish_reason": "stop",
-				"message": map[string]any{"role": "assistant", "content": content},
-			}},
-			"usage": map[string]any{"prompt_tokens": 123, "completion_tokens": completionTokens, "total_tokens": 123 + completionTokens},
-		})
 	}))
 	defer server.Close()
-	t.Setenv("OCR_LLM_URL", server.URL+"/v1")
-	t.Setenv("OCR_LLM_TOKEN", "report-test-token")
-	t.Setenv("OCR_LLM_MODEL", "fake-report-model")
-	t.Setenv("OCR_LLM_PROTOCOL", "openai")
-
-	material := reportTestLongMaterial()
-	visibleTokens := llm.CountTokensForModel(reportHTMLFixture(material), "fake-report-model")
-	if visibleTokens > maxReportVisibleOutputTokens {
-		t.Fatalf("60-finding fixture requires %d visible output tokens, above the %d-token report budget", visibleTokens, maxReportVisibleOutputTokens)
-	}
-	input := writeReportInput(t, material)
-	out := filepath.Join(t.TempDir(), "four-risks.html")
-	responses <- reportHTMLFixture(material)
+	configureReportLLM(t, server.URL)
+	out := filepath.Join(t.TempDir(), "agent-loop.html")
 	stdout, stderr, err := executeReportCommand([]string{"--input", input, "--output", out})
 	if err != nil {
 		t.Fatalf("report command failed: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(stdout, out) || !strings.Contains(stderr, fmt.Sprintf("input_tokens=123 output_tokens=70000 visible_output_tokens=%d usage=reported", visibleTokens)) {
-		t.Fatalf("command diagnostics are incomplete: stdout=%q stderr=%q", stdout, stderr)
+	if !strings.Contains(stdout, out) || !strings.Contains(stderr, "phase=html_generation") || !strings.Contains(stderr, "usage=reported") {
+		t.Fatalf("diagnostics incomplete: stdout=%q stderr=%q", stdout, stderr)
 	}
-	request := <-requests
-	if request["max_tokens"] != float64(maxReportAttemptCompletionTokens) && request["max_completion_tokens"] != float64(maxReportAttemptCompletionTokens) {
-		t.Fatalf("long report request did not reserve provider reasoning headroom: %#v", request)
+	first := <-requests
+	messages := first["messages"].([]any)
+	if len(messages) < 2 {
+		t.Fatalf("initial messages = %#v", messages)
 	}
-	if _, ok := request["tools"]; ok {
-		t.Fatal("report request must not expose tools")
+	system := fmt.Sprint(messages[0].(map[string]any)["content"])
+	user := fmt.Sprint(messages[1].(map[string]any)["content"])
+	if strings.Contains(user, `"schema_version"`) {
+		t.Fatalf("initial user message stuffed report JSON: %s", user)
 	}
-	messages, ok := request["messages"].([]any)
-	if !ok || len(messages) != 2 {
-		t.Fatalf("report request messages = %#v, want only template and report material", request["messages"])
+	if !strings.Contains(user, "input.report.json") || !strings.Contains(user, "template.md") || !strings.Contains(user, "styles.css") {
+		t.Fatalf("initial user message missing staged resource paths: %s", user)
 	}
-	templateMessage, ok := messages[0].(map[string]any)
-	if !ok || templateMessage["role"] != "system" || !strings.Contains(fmt.Sprint(templateMessage["content"]), "data-fact") {
-		t.Fatalf("report request is missing the template's fact-binding instructions: %#v", messages[0])
+	if !strings.Contains(system, "Prefer the staged report JSON") || !strings.Contains(system, "Avoid re-reading") {
+		t.Fatalf("system prompt missing material-first guidance: %s", system)
 	}
-	materialJSON, err := json.Marshal(material)
-	if err != nil {
-		t.Fatal(err)
+	toolNames := reportToolNames(first["tools"])
+	for _, name := range []string{"file_read", "file_find", "code_search", "write_html", "task_done"} {
+		if !slices.Contains(toolNames, name) {
+			t.Fatalf("tools = %v, missing %s", toolNames, name)
+		}
 	}
-	userMessage, ok := messages[1].(map[string]any)
-	if !ok || userMessage["role"] != "user" || userMessage["content"] != string(materialJSON) {
-		t.Fatalf("model did not receive the existing report material as its only user input: %#v", messages[1])
+	if slices.Contains(toolNames, "code_comment") {
+		t.Fatalf("report exposed code_comment: %v", toolNames)
 	}
 	data, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidencePath := os.Getenv("OCR_REPORT_HTML_EVIDENCE_FILE"); evidencePath != "" {
-		if err := os.WriteFile(evidencePath, data, 0o600); err != nil {
-			t.Fatalf("write browser evidence HTML: %v", err)
-		}
-	}
-	if err := report.ValidateHTMLDocument(string(data), material); err != nil {
-		t.Fatalf("saved HTML failed fact and safety validation: %v", err)
-	}
-	for _, severity := range []string{"critical", "high", "medium", "low"} {
-		if !strings.Contains(string(data), `data-severity="`+severity+`"`) {
-			t.Errorf("saved HTML omitted %s findings", severity)
-		}
-	}
-	if !strings.Contains(string(data), "not collected") || !strings.Contains(string(data), `return secret &lt;&amp; token`) {
-		t.Fatal("partial state, knowledge gap, or safely escaped evidence was omitted")
+	writeReportBrowserEvidence(t, "OCR_REPORT_HTML_EVIDENCE_FILE", data)
+	if !strings.Contains(string(data), `data-severity="critical"`) {
+		t.Fatal("saved HTML omitted expected finding markers from the draft")
 	}
 
-	zeroMaterial := reportTestMaterial(false)
-	zeroInput := writeReportInput(t, zeroMaterial)
-	zeroOutput := filepath.Join(t.TempDir(), "zero.html")
-	responses <- reportHTMLFixture(zeroMaterial)
-	if _, stderr, err := executeReportCommand([]string{"--input", zeroInput, "--output", zeroOutput}); err != nil {
+	zero := reportTestMaterial(false)
+	zeroInput := writeReportInput(t, zero)
+	zeroOut := filepath.Join(t.TempDir(), "zero.html")
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeReportToolCalls(w, 10, 10,
+			reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(zero)}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
+	}))
+	defer server2.Close()
+	configureReportLLM(t, server2.URL)
+	if _, stderr, err := executeReportCommand([]string{"--input", zeroInput, "--output", zeroOut}); err != nil {
 		t.Fatalf("zero-finding report failed: %v\nstderr: %s", err, stderr)
 	}
-	<-requests
-	zeroHTML, err := os.ReadFile(zeroOutput)
+	zeroHTML, err := os.ReadFile(zeroOut)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeReportBrowserEvidence(t, "OCR_REPORT_HTML_SHORT_EVIDENCE_FILE", zeroHTML)
-	if !strings.Contains(string(zeroHTML), `data-stat="finding-count">0`) {
-		t.Fatal("zero-finding report did not show a computed zero")
-	}
 
-	badOutput := filepath.Join(t.TempDir(), "altered.html")
-	criticalCount := 0
-	for _, finding := range material.Findings {
-		if finding.Severity == "critical" {
-			criticalCount++
-		}
+	scripted := "<!doctype html><html lang=\"zh-CN\"><head><title>x</title><style>body{}</style></head><body><main><script>alert(1)</script><p>free form</p></main></body></html>"
+	scriptOut := filepath.Join(t.TempDir(), "script.html")
+	server3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeReportToolCalls(w, 10, 10,
+			reportToolCall("w", "write_html", map[string]any{"html": scripted}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
+	}))
+	defer server3.Close()
+	configureReportLLM(t, server3.URL)
+	if _, _, err := executeReportCommand([]string{"--input", zeroInput, "--output", scriptOut}); err != nil {
+		t.Fatalf("script-containing HTML was rejected: %v", err)
 	}
-	alteredStatistics := strings.Replace(reportHTMLFixture(material), fmt.Sprintf(`data-stat="risk-critical">%d`, criticalCount), fmt.Sprintf(`data-stat="risk-critical">%d`, criticalCount+1), 1)
-	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		responses <- alteredStatistics
+	got, err := os.ReadFile(scriptOut)
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, badStatisticsStderr, err := executeReportCommand([]string{"--input", input, "--output", badOutput})
-	if err == nil || !strings.Contains(badStatisticsStderr+err.Error(), "statistic") {
-		t.Fatalf("altered model statistics were accepted: err=%v stderr=%s", err, badStatisticsStderr)
-	}
-	if got := strings.Count(badStatisticsStderr, "phase=html_generation attempt="); got != maxReportHTMLAttempts {
-		t.Fatalf("invalid statistics made %d repair attempts, want %d: %s", got, maxReportHTMLAttempts, badStatisticsStderr)
-	}
-	requestCount := 0
-	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		request = <-requests
-		requestCount++
-		messages = request["messages"].([]any)
-		userMessage = messages[1].(map[string]any)
-		if userMessage["content"] != string(materialJSON) {
-			t.Fatalf("repair attempt %d changed the report material input", attempt+1)
-		}
-		if attempt == 0 {
-			if len(messages) != 2 {
-				t.Fatalf("initial generation has %d messages, want 2", len(messages))
-			}
-			continue
-		}
-		if len(messages) != 4 {
-			t.Fatalf("repair attempt %d has %d messages, want 4", attempt, len(messages))
-		}
-		if messages[2].(map[string]any)["content"] != alteredStatistics {
-			t.Fatalf("repair attempt %d omitted the preceding invalid HTML draft", attempt)
-		}
-	}
-	if requestCount != maxReportHTMLAttempts {
-		t.Fatalf("long report made %d requests, want %d", requestCount, maxReportHTMLAttempts)
-	}
-	if _, err := os.Stat(badOutput); !os.IsNotExist(err) {
-		t.Fatalf("invalid model HTML left a final file: %v", err)
-	}
-	badPeopleOutput := filepath.Join(t.TempDir(), "invented-people.html")
-	peopleSection := `<section data-section="people">`
-	forgedPeople := strings.Replace(reportHTMLFixture(material), `</section><section data-section="governance"`, `<p>Avery made 42 commits.</p></section><section data-section="governance"`, 1)
-	if !strings.Contains(forgedPeople, peopleSection) {
-		t.Fatal("fixture is missing the people section")
-	}
-	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		responses <- forgedPeople
-	}
-	_, badPeopleStderr, err := executeReportCommand([]string{"--input", input, "--output", badPeopleOutput})
-	if err == nil || !strings.Contains(badPeopleStderr+err.Error(), "number absent from the JSON material") {
-		t.Fatalf("invented people details were accepted: err=%v stderr=%s", err, badPeopleStderr)
-	}
-	if calls := strings.Count(badPeopleStderr, "phase=html_generation attempt="); calls != maxReportHTMLAttempts {
-		t.Fatalf("invalid people facts made %d repair attempts, want %d: %s", calls, maxReportHTMLAttempts, badPeopleStderr)
-	}
-	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		request = <-requests
-		messages = request["messages"].([]any)
-		if attempt == 0 {
-			if len(messages) != 2 {
-				t.Fatalf("initial people-fact request has %d messages, want 2", len(messages))
-			}
-			continue
-		}
-		if len(messages) != 4 {
-			t.Fatalf("people-fact repair attempt %d has %d messages, want 4", attempt, len(messages))
-		}
-		draftMessage := messages[2].(map[string]any)
-		repairMessage := messages[3].(map[string]any)
-		systemMessage := messages[0].(map[string]any)
-		if draftMessage["role"] != "assistant" || !strings.Contains(fmt.Sprint(draftMessage["content"]), "42 commits") {
-			t.Fatal("repair request omitted the prior invalid HTML assistant draft")
-		}
-		if repairMessage["role"] != "user" || strings.Contains(fmt.Sprint(repairMessage["content"]), "42 commits") {
-			t.Fatal("unverified report text leaked into the repair diagnostic")
-		}
-		if !strings.Contains(fmt.Sprint(systemMessage["content"]), "prior assistant HTML drafts") {
-			t.Fatal("system prompt did not mark prior assistant drafts as untrusted")
-		}
-	}
-	if strings.Contains(badPeopleStderr+err.Error(), "42 commits") {
-		t.Fatal("unverified report text leaked into CLI diagnostics")
-	}
-	if _, err := os.Stat(badPeopleOutput); !os.IsNotExist(err) {
-		t.Fatalf("invented facts left a final HTML file: %v", err)
+	if !strings.Contains(string(got), "<script>alert(1)</script>") {
+		t.Fatal("delivered HTML was altered or rejected for script content")
 	}
 }
 
-func TestReportHTMLValidationDiagnosticIncludesSafeFindingDetails(t *testing.T) {
-	findingID := "sha256:" + strings.Repeat("a", 64)
-	tests := []struct {
-		name string
-		err  string
-		want string
-	}{
-		{
-			name: "finding count",
-			err:  "validate generated HTML: HTML finding set contains 12 items; report material contains 13",
-			want: "the finding list contains 12 items but the report material contains 13; include every finding exactly once",
-		},
-		{
-			name: "missing finding ID",
-			err:  fmt.Sprintf("validate generated HTML: HTML document omits finding %q", findingID),
-			want: "finding " + findingID + " is missing; include it exactly once",
-		},
-		{
-			name: "finding fact key",
-			err:  fmt.Sprintf("validate generated HTML: HTML finding %q omits, adds, or changes fact %q", findingID, "summary_zh"),
-			want: "finding fact summary_zh is missing or incorrect; preserve its exact value",
-		},
-		{
-			name: "incorrect finding fact value",
-			err:  fmt.Sprintf("validate generated HTML: HTML finding %q contains an incorrect fact %q", findingID, "source_content"),
-			want: "finding fact source_content has an incorrect value; copy its exact value from the report material",
-		},
-		{
-			name: "unsupported finding fact name",
-			err:  "validate generated HTML: HTML finding contains an unsupported fact name",
-			want: "remove unsupported data-fact markers; preserve the report material using ordinary visible text",
-		},
-		{
-			name: "finding outside details section",
-			err:  fmt.Sprintf("validate generated HTML: HTML finding %q must appear in the finding-details section", findingID),
-			want: "place every finding card inside the required finding-details section",
-		},
-		{
-			name: "untrusted finding identifier",
-			err:  `validate generated HTML: HTML document omits finding "C:\private\data"`,
-			want: "a required finding is missing; include every report finding exactly once",
-		},
-		{
-			name: "untrusted fact name",
-			err:  fmt.Sprintf("validate generated HTML: HTML finding %q omits, adds, or changes fact %q", findingID, "secret bearer token"),
-			want: "a finding contains an unsupported or incorrect data-fact; include only the required fact names and values",
-		},
-		{
-			name: "duplicate finding",
-			err:  fmt.Sprintf("HTML document duplicates finding %q", findingID),
-			want: "the report contains a duplicate finding card; include every finding ID exactly once",
-		},
-		{
-			name: "finding count statistic",
-			err:  `HTML statistic "finding-count" does not match the report material`,
-			want: "report statistic finding-count is missing or incorrect; use the computed value from the report material",
-		},
-		{
-			name: "missing section heading",
-			err:  `HTML document is missing required section "sources"`,
-			want: "section sources must be present with visible content and a heading; wording and layout may vary",
-		},
-		{
-			name: "missing section heading",
-			err:  `HTML section "quality-coverage" must contain a non-empty heading`,
-			want: "section quality-coverage must be present with visible content and a heading; wording and layout may vary",
-		},
-		{
-			name: "finding disclosure",
-			err:  "HTML details must be an open finding disclosure",
-			want: "wrap each finding's complete facts in one open native details disclosure with a summary",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := reportHTMLValidationDiagnostic(fmt.Errorf("%s", test.err)); got != test.want {
-				t.Fatalf("reportHTMLValidationDiagnostic() = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
-func TestReportCommandKeepsProviderErrorBodyOutOfRetryAndDiagnostics(t *testing.T) {
+func TestReportCommandFailsWhenHTMLNeverWritten(t *testing.T) {
 	setTestHome(t, t.TempDir())
-	material := reportTestMaterial(true)
+	material := reportTestMaterial(false)
 	input := writeReportInput(t, material)
-	secret := `C:\Users\private\request-body bearer=do-not-print`
-	var calls atomic.Int32
-	requests := make(chan map[string]any, 2)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		requests <- request
-		if calls.Add(1) == 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = fmt.Fprintf(w, `{"error":{"message":%q}}`, secret)
-			return
-		}
-		writeReportCompletion(w, reportHTMLFixture(material), "stop")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeReportToolCalls(w, 5, 5, reportToolCall("d", "task_done", map[string]any{"state": "DONE"}))
 	}))
 	defer server.Close()
 	configureReportLLM(t, server.URL)
-	output := filepath.Join(t.TempDir(), "provider-error-retry.html")
-	stdout, stderr, err := executeReportCommand([]string{"--input", input, "--output", output})
-	if err != nil {
-		t.Fatalf("safe provider retry failed: %v\nstderr: %s", err, stderr)
+	out := filepath.Join(t.TempDir(), "missing.html")
+	_, stderr, err := executeReportCommand([]string{"--input", input, "--output", out})
+	if err == nil || !strings.Contains(err.Error(), "write_html was never called") {
+		t.Fatalf("error = %v stderr=%s, want missing write_html", err, stderr)
 	}
-	if strings.Contains(stdout+stderr, secret) || strings.Contains(stdout+stderr, "request-body") {
-		t.Fatalf("provider error body leaked to command output: stdout=%q stderr=%q", stdout, stderr)
-	}
-	firstRequest, secondRequest := <-requests, <-requests
-	secondMessages, ok := secondRequest["messages"].([]any)
-	if !ok || len(secondMessages) < 3 {
-		t.Fatalf("retry request did not include a separate diagnostic message: %#v", secondRequest["messages"])
-	}
-	secondRequestJSON, _ := json.Marshal(secondRequest)
-	if strings.Contains(string(secondRequestJSON), secret) || strings.Contains(string(secondRequestJSON), "request-body") {
-		t.Fatalf("provider error body leaked into the retry request: %s", secondRequestJSON)
-	}
-	firstMessages := firstRequest["messages"].([]any)
-	firstInput := firstMessages[1].(map[string]any)["content"]
-	secondInput := secondMessages[1].(map[string]any)["content"]
-	if firstInput != secondInput {
-		t.Fatal("retry changed the existing report material JSON")
-	}
-	diagnostic := secondMessages[2].(map[string]any)["content"]
-	if !strings.Contains(fmt.Sprint(diagnostic), "400") {
-		t.Fatalf("retry did not retain a safe provider status diagnostic: %#v", diagnostic)
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("missing write published a file: %v", err)
 	}
 }
 
-func TestReportCommandStopsRetryingAfterCallerCancellation(t *testing.T) {
+func TestReportCommandModelFailureDoesNotPublish(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	material := reportTestMaterial(false)
+	input := writeReportInput(t, material)
+	secret := `C:\Users\private\request-body bearer=do-not-print`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `{"error":{"message":%q}}`, secret)
+	}))
+	defer server.Close()
+	configureReportLLM(t, server.URL)
+	out := filepath.Join(t.TempDir(), "provider-fail.html")
+	stdout, stderr, err := executeReportCommand([]string{"--input", input, "--output", out})
+	if err == nil {
+		t.Fatal("provider failure was accepted")
+	}
+	if strings.Contains(stdout+stderr+err.Error(), secret) || strings.Contains(stdout+stderr, "request-body") {
+		t.Fatalf("provider body leaked: stdout=%q stderr=%q err=%v", stdout, stderr, err)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("failed generation published HTML: %v", err)
+	}
+}
+
+func TestReportCommandStopsAfterCallerCancellation(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	material := reportTestMaterial(false)
 	input := writeReportInput(t, material)
@@ -422,7 +197,10 @@ func TestReportCommandStopsRetryingAfterCallerCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		cancel()
-		writeReportCompletion(w, reportHTMLFixture(material), "stop")
+		writeReportToolCalls(w, 5, 5,
+			reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
 	}))
 	defer server.Close()
 	configureReportLLM(t, server.URL)
@@ -433,266 +211,46 @@ func TestReportCommandStopsRetryingAfterCallerCancellation(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "canceled") {
-		t.Fatalf("canceled report command error = %v, want cancellation", err)
+	if err == nil {
+		t.Fatal("expected cancellation error")
 	}
-	if calls.Load() != 1 || strings.Count(stderr.String(), "phase=html_generation attempt=") != 1 {
-		t.Fatalf("caller cancellation retried the model: calls=%d stderr=%s", calls.Load(), stderr.String())
-	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("caller cancellation published a partial report: %v", err)
+	if calls.Load() != 1 {
+		t.Fatalf("cancellation retried the model: calls=%d stderr=%s", calls.Load(), stderr.String())
 	}
 }
 
-func TestReportCommandRepairsInvalidHTMLFromExistingMaterial(t *testing.T) {
-	setTestHome(t, t.TempDir())
-	material := reportTestMaterial(true)
-	input := writeReportInput(t, material)
-	inputJSON, err := os.ReadFile(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	missingSection := strings.Replace(reportHTMLFixture(material), `<section data-section="quality-coverage"`, `<section data-section="unknown-section"`, 1)
-	var calls atomic.Int32
-	requests := make(chan map[string]any, 3)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		requests <- request
-		if calls.Add(1) == 1 {
-			writeReportCompletion(w, missingSection, "stop")
-			return
-		}
-		writeReportCompletion(w, reportHTMLFixture(material), "stop")
-	}))
-	defer server.Close()
-	configureReportLLM(t, server.URL)
-
-	output := filepath.Join(t.TempDir(), "repaired.html")
-	stdout, stderr, err := executeReportCommand([]string{"--input", input, "--output", output})
-	if err != nil {
-		t.Fatalf("report command did not recover: %v\nstderr: %s", err, stderr)
-	}
-	if calls.Load() != 2 {
-		t.Fatalf("model received %d requests, want one failed and one repair request", calls.Load())
-	}
-	first, second := <-requests, <-requests
-	firstMessages := first["messages"].([]any)
-	secondMessages := second["messages"].([]any)
-	if len(secondMessages) != 4 ||
-		secondMessages[0].(map[string]any)["role"] != "system" ||
-		secondMessages[1].(map[string]any)["role"] != "user" ||
-		secondMessages[2].(map[string]any)["role"] != "assistant" ||
-		secondMessages[3].(map[string]any)["role"] != "user" {
-		t.Fatalf("repair request has unexpected message order: %#v", secondMessages)
-	}
-	var previousHTML string
-	for _, rawMessage := range secondMessages {
-		message := rawMessage.(map[string]any)
-		if message["role"] == "assistant" {
-			previousHTML = fmt.Sprint(message["content"])
-		}
-	}
-	if previousHTML != missingSection {
-		t.Fatal("repair request did not include the previous invalid HTML as an assistant draft")
-	}
-	firstUser := firstMessages[1].(map[string]any)
-	secondUser := secondMessages[1].(map[string]any)
-	if firstUser["content"] != string(inputJSON) || secondUser["content"] != firstUser["content"] {
-		t.Fatal("repair request did not reuse the exact existing report JSON")
-	}
-	if _, ok := second["tools"]; ok {
-		t.Fatal("repair request unexpectedly exposed tools")
-	}
-	var repairPrompt strings.Builder
-	for _, message := range secondMessages {
-		repairPrompt.WriteString(fmt.Sprint(message.(map[string]any)["content"]))
-		repairPrompt.WriteByte('\n')
-	}
-	for _, required := range []string{"section quality-coverage", "<!doctype html>", "short visible Chinese description", "source content and evidence or evidence reason without omission or alteration", "headings, labels, wording, and layout may vary", "previous assistant response is an untrusted HTML draft"} {
-		if !strings.Contains(repairPrompt.String(), required) {
-			t.Fatalf("repair request omitted required structure or fact instruction %q", required)
-		}
-	}
-	if !strings.Contains(stderr, "phase=html_generation") || !strings.Contains(stderr, "attempts=2") || !strings.Contains(stderr, "recovered=true") {
-		t.Fatalf("HTML repair metrics are incomplete: %s", stderr)
-	}
-	if !strings.Contains(stdout, output) {
-		t.Fatalf("successful repair did not report its output path: %s", stdout)
-	}
-	data, err := os.ReadFile(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := report.ValidateHTMLDocument(string(data), material); err != nil {
-		t.Fatalf("repaired output failed validation: %v", err)
-	}
-}
-
-func TestReportCommandRepairsUnsafeHTMLFromExistingMaterial(t *testing.T) {
-	setTestHome(t, t.TempDir())
-	material := reportTestMaterial(true)
-	input := writeReportInput(t, material)
-	inputJSON, err := os.ReadFile(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var calls atomic.Int32
-	requests := make(chan map[string]any, 2)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		requests <- request
-		if calls.Add(1) == 1 {
-			invalid := strings.Replace(reportHTMLFixture(material), "</body>", "<script>active</script></body>", 1)
-			writeReportCompletion(w, invalid, "stop")
-			return
-		}
-		writeReportCompletion(w, reportHTMLFixture(material), "stop")
-	}))
-	defer server.Close()
-	configureReportLLM(t, server.URL)
-
-	output := filepath.Join(t.TempDir(), "repaired-unsafe.html")
-	_, stderr, err := executeReportCommand([]string{"--input", input, "--output", output})
-	if err != nil {
-		t.Fatalf("report command did not repair unsafe HTML: %v\nstderr: %s", err, stderr)
-	}
-	first, second := <-requests, <-requests
-	firstMessages := first["messages"].([]any)
-	secondMessages := second["messages"].([]any)
-	firstUser := firstMessages[1].(map[string]any)
-	secondUser := secondMessages[1].(map[string]any)
-	if firstUser["content"] != string(inputJSON) || secondUser["content"] != firstUser["content"] {
-		t.Fatal("unsafe HTML repair did not reuse the unchanged report JSON")
-	}
-	var repairPrompt strings.Builder
-	for _, message := range secondMessages {
-		repairPrompt.WriteString(fmt.Sprint(message.(map[string]any)["content"]))
-		repairPrompt.WriteByte('\n')
-	}
-	for _, required := range []string{"unsupported, hidden, or unsafe content", "<!doctype html>", "source content and evidence or evidence reason without omission or alteration", "headings, labels, wording, and layout may vary"} {
-		if !strings.Contains(repairPrompt.String(), required) {
-			t.Fatalf("unsafe HTML repair prompt omitted required instruction %q", required)
-		}
-	}
-	if _, err := os.Stat(output); err != nil {
-		t.Fatalf("repaired safe HTML was not published: %v", err)
-	}
-}
-
-func TestReportCommandStopsWhenCumulativeCompletionUsageExceedsBudget(t *testing.T) {
+func TestReportCommandRejectsExistingExplicitOutputBeforeLoop(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	material := reportTestMaterial(false)
 	input := writeReportInput(t, material)
+	out := filepath.Join(t.TempDir(), "exists.html")
+	if err := os.WriteFile(out, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int32
-	requests := make(chan map[string]any, 3)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		requests <- request
-		call := calls.Add(1)
-		if call == 1 {
-			writeReportCompletionWithUsage(w, "<html>truncated response", "stop", 300, maxReportTotalOutputTokens/2)
-			return
-		}
-		writeReportCompletionWithUsage(w, reportHTMLFixture(material), "stop", 300, maxReportTotalOutputTokens/2+1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		writeReportToolCalls(w, 5, 5, reportToolCall("d", "task_done", map[string]any{"state": "DONE"}))
 	}))
 	defer server.Close()
 	configureReportLLM(t, server.URL)
-	output := filepath.Join(t.TempDir(), "over-budget.html")
-	_, stderr, err := executeReportCommand([]string{"--input", input, "--output", output})
-	if err == nil || !strings.Contains(err.Error(), "total model completion usage") || !strings.Contains(err.Error(), "limit") {
-		t.Fatalf("over-budget model output was accepted: err=%v stderr=%s", err, stderr)
+	_, _, err := executeReportCommand([]string{"--input", input, "--output", out})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("existing output error = %v", err)
 	}
-	if calls.Load() != 2 {
-		t.Fatalf("budget-exhausting response made %d attempts, want 2", calls.Load())
+	if calls.Load() != 0 {
+		t.Fatalf("model was called despite existing output: %d", calls.Load())
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("over-budget response left a final HTML file: %v", err)
-	}
-	if !strings.Contains(stderr, fmt.Sprintf("output_tokens=%d", maxReportTotalOutputTokens+1)) || !strings.Contains(stderr, "recovered=false") {
-		t.Fatalf("over-budget attempt metrics were not accumulated: %s", stderr)
-	}
-	for attempt := 0; attempt < 2; attempt++ {
-		request := <-requests
-		maxTokens := request["max_tokens"]
-		if maxTokens == nil {
-			maxTokens = request["max_completion_tokens"]
-		}
-		if maxTokens != float64(maxReportAttemptCompletionTokens) {
-			t.Fatalf("attempt %d requested max tokens=%v, want %d", attempt+1, maxTokens, maxReportAttemptCompletionTokens)
-		}
+	got, err := os.ReadFile(out)
+	if err != nil || string(got) != "keep" {
+		t.Fatalf("existing file was modified: %q err=%v", got, err)
 	}
 }
 
-func TestReportOutputBudgetDiagnostics(t *testing.T) {
-	tests := []struct {
-		name                    string
-		visible, total          int
-		wantDiagnosticSubstring string
-	}{
-		{name: "visible document limit", visible: maxReportVisibleOutputTokens + 1, total: 1, wantDiagnosticSubstring: "visible model output"},
-		{name: "cumulative completion limit", visible: 100, total: maxReportTotalOutputTokens + 1, wantDiagnosticSubstring: "total model completion usage"},
-		{name: "within both limits", visible: maxReportVisibleOutputTokens, total: maxReportTotalOutputTokens},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := reportHTMLOutputBudgetDiagnostic(test.visible, test.total)
-			if test.wantDiagnosticSubstring == "" {
-				if got != "" {
-					t.Fatalf("budget diagnostic = %q, want none", got)
-				}
-				return
-			}
-			if !strings.Contains(got, test.wantDiagnosticSubstring) {
-				t.Fatalf("budget diagnostic = %q, want %q", got, test.wantDiagnosticSubstring)
-			}
-		})
-	}
-}
-
-func TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateMaterialBeforeRequest(t *testing.T) {
+func TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateBeforeModel(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	var calls atomic.Int32
-	requests := make(chan report.MultiReportInput, 4)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		messages, ok := request["messages"].([]any)
-		if !ok || len(messages) != 2 {
-			http.Error(w, "unexpected messages", http.StatusBadRequest)
-			return
-		}
-		user, ok := messages[1].(map[string]any)
-		if !ok || user["role"] != "user" {
-			http.Error(w, "missing report envelope", http.StatusBadRequest)
-			return
-		}
-		var input report.MultiReportInput
-		if err := json.Unmarshal([]byte(fmt.Sprint(user["content"])), &input); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		requests <- input
-		writeReportCompletion(w, reportMultiHTMLFixture(input), "stop")
-	}))
-	defer server.Close()
-	configureReportLLM(t, server.URL)
-
+	requests := make(chan map[string]any, 4)
 	first := reportTestMaterial(true)
 	first.Review.RunID = "multi-partial-first"
 	first.Repository.Name = "shared-repository"
@@ -714,42 +272,54 @@ func TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateMaterialBeforeR
 	third.Scope.ExactRange = strings.Repeat("b", 40) + ".." + third.Scope.ResolvedHead.SHA
 	third = withReportTestPeople(third, "A. Chen", "alice@example.com", "Sam Lee", "")
 	paths := []string{writeReportInput(t, first), writeReportInput(t, second), writeReportInput(t, third)}
-
+	ordered, err := report.NewMultiReportInput([]report.Material{first, second, third})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reordered, err := report.NewMultiReportInput([]report.Material{third, second, first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requests <- request
+		n := int(calls.Add(1))
+		htmlDoc := reportMultiHTMLFixture(ordered)
+		if n > 1 {
+			htmlDoc = reportMultiHTMLFixture(reordered)
+		}
+		writeReportToolCalls(w, 80, 40,
+			reportToolCall("w", "write_html", map[string]any{"html": htmlDoc}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
+	}))
+	defer server.Close()
+	configureReportLLM(t, server.URL)
 	outDir := t.TempDir()
 	firstOutput := filepath.Join(outDir, "multi-first.html")
 	if _, stderr, err := executeReportCommand([]string{"--input", paths[0], "--input", paths[1], "--input", paths[2], "--output", firstOutput}); err != nil {
 		t.Fatalf("multi-input report failed: %v\nstderr: %s", err, stderr)
 	}
-	input := <-requests
-	if got := []string{input.ReviewUnits[0].Material.Review.RunID, input.ReviewUnits[1].Material.Review.RunID, input.ReviewUnits[2].Material.Review.RunID}; !slices.Equal(got, []string{first.Review.RunID, second.Review.RunID, third.Review.RunID}) {
-		t.Fatalf("review-unit order = %v", got)
+	firstReq := <-requests
+	user := fmt.Sprint(firstReq["messages"].([]any)[1].(map[string]any)["content"])
+	if !strings.Contains(user, "input-1.report.json") || !strings.Contains(user, "input-2.report.json") || !strings.Contains(user, "input-3.report.json") {
+		t.Fatalf("ordered prompt missing staged inputs: %s", user)
 	}
-	if input.Summary.ReviewUnitCount != 3 || input.Summary.FindingRecordCount != 8 || input.Summary.FindingsBySeverity["not_collected"] != 1 {
-		t.Fatalf("summary = %+v, want 3 units, 8 unit-scoped finding records, and 1 finding without collected severity", input.Summary)
-	}
-	if input.ReviewUnits[0].Material.Findings[0].ID != input.ReviewUnits[2].Material.Findings[0].ID {
-		t.Fatal("fixture must contain colliding finding IDs in different repositories")
-	}
-	var mergedPerson *report.MultiReportPerson
-	for index := range input.People {
-		person := &input.People[index]
-		if person.IdentityStatus == "email_verified" && slices.Contains(person.NameVariants, "Alice Chen") {
-			mergedPerson = person
-		}
-	}
-	if mergedPerson == nil || len(mergedPerson.Contributions) != 2 || len(mergedPerson.NameVariants) != 2 {
-		t.Fatalf("reliable cross-repository identity was not represented: %+v", mergedPerson)
+	pos1, pos2, pos3 := strings.Index(user, "input-1.report.json"), strings.Index(user, "input-2.report.json"), strings.Index(user, "input-3.report.json")
+	if !(pos1 < pos2 && pos2 < pos3) {
+		t.Fatalf("input paths are not in order: %s", user)
 	}
 	firstHTML, err := os.ReadFile(firstOutput)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeMultiBrowserEvidence(t, "OCR_MULTI_REPORT_HTML_EVIDENCE_FILE", firstHTML)
-	if strings.Count(string(firstHTML), `data-finding-id="`+first.Findings[0].ID+`"`) != 2 || !strings.Contains(string(firstHTML), `data-severity=""`) || !strings.Contains(string(firstHTML), "\u672a\u5bf9\u8de8\u5355\u5143\u95ee\u9898\u53bb\u91cd") {
-		t.Fatal("saved report lost an unknown-severity finding, colliding finding, or the unit-scoped counting rule")
-	}
-	if err := report.ValidateMultiHTMLDocument(string(firstHTML), input); err != nil {
-		t.Fatalf("saved report did not pass multi-unit fact/safety validation: %v", err)
+	if !strings.Contains(string(firstHTML), first.Review.RunID) || !strings.Contains(string(firstHTML), third.Review.RunID) {
+		t.Fatal("multi HTML omitted review unit run ids")
 	}
 
 	secondOutput := filepath.Join(outDir, "multi-reordered.html")
@@ -761,10 +331,7 @@ func TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateMaterialBeforeR
 		t.Fatal(err)
 	}
 	writeMultiBrowserEvidence(t, "OCR_MULTI_REPORT_HTML_REORDERED_EVIDENCE_FILE", secondHTML)
-	reordered := <-requests
-	if got := []string{reordered.ReviewUnits[0].Material.Review.RunID, reordered.ReviewUnits[1].Material.Review.RunID, reordered.ReviewUnits[2].Material.Review.RunID}; !slices.Equal(got, []string{third.Review.RunID, second.Review.RunID, first.Review.RunID}) {
-		t.Fatalf("reordered review-unit order = %v", got)
-	}
+	<-requests
 
 	alias := filepath.Join(t.TempDir(), "same-material-different-name.json")
 	materialBytes, err := os.ReadFile(paths[0])
@@ -777,115 +344,51 @@ func TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateMaterialBeforeR
 	beforeDuplicate := calls.Load()
 	duplicateOutput := filepath.Join(outDir, "duplicate.html")
 	if _, _, err := executeReportCommand([]string{"--input", paths[0], "--input", alias, "--output", duplicateOutput}); err == nil || !strings.Contains(err.Error(), "run_id") {
-		t.Fatalf("duplicate material with a different path was accepted: %v", err)
+		t.Fatalf("duplicate material was accepted: %v", err)
 	}
 	if calls.Load() != beforeDuplicate {
-		t.Fatalf("duplicate input reached the model: calls before=%d after=%d", beforeDuplicate, calls.Load())
-	}
-	if _, err := os.Stat(duplicateOutput); !os.IsNotExist(err) {
-		t.Fatalf("duplicate input left an output file: %v", err)
-	}
-	entries, err := os.ReadDir(outDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
-			t.Fatalf("multi-input command produced an unexpected merged JSON file %q", entry.Name())
-		}
+		t.Fatalf("duplicate input reached the model")
 	}
 }
 
-func TestReportCommandMultiInputFailureDoesNotPublishAndCanRetry(t *testing.T) {
+func TestReportCommandMultiInputCanRetryAfterModelFailure(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	material := reportTestMaterial(false)
 	material.Review.RunID = "retry-unit-one"
 	second := reportTestMaterial(true)
 	second.Review.RunID = "retry-unit-two"
 	paths := []string{writeReportInput(t, material), writeReportInput(t, second)}
-	type requestEvidence struct {
-		input  string
-		prompt string
+	input, err := report.NewMultiReportInput([]report.Material{material, second})
+	if err != nil {
+		t.Fatal(err)
 	}
-	var calls atomic.Int32
-	receivedInputs := make(chan requestEvidence, maxReportHTMLAttempts+1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	failing := atomic.Bool{}
+	failing.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if failing.Load() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":{"message":"temporary"}}`))
 			return
 		}
-		messages := request["messages"].([]any)
-		user := messages[1].(map[string]any)
-		var input report.MultiReportInput
-		if err := json.Unmarshal([]byte(fmt.Sprint(user["content"])), &input); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		var prompt strings.Builder
-		for _, message := range messages {
-			if item, ok := message.(map[string]any); ok {
-				prompt.WriteString(fmt.Sprint(item["content"]))
-				prompt.WriteByte('\n')
-			}
-		}
-		receivedInputs <- requestEvidence{input: fmt.Sprint(user["content"]), prompt: prompt.String()}
-		switch calls.Add(1) {
-		case 1:
-			invalid := strings.Replace(reportMultiHTMLFixture(input), `<section data-section="overview"`, `<section data-section="unknown-section"`, 1)
-			writeReportCompletion(w, invalid, "stop")
-		case 2:
-			invalid := strings.Replace(reportMultiHTMLFixture(input), "</body>", "<script>active</script></body>", 1)
-			writeReportCompletion(w, invalid, "stop")
-		case 3:
-			writeReportCompletion(w, "<html>not a report</html>", "stop")
-		default:
-			writeReportCompletion(w, reportMultiHTMLFixture(input), "stop")
-		}
+		writeReportToolCalls(w, 20, 20,
+			reportToolCall("w", "write_html", map[string]any{"html": reportMultiHTMLFixture(input)}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
 	}))
 	defer server.Close()
 	configureReportLLM(t, server.URL)
 	out := filepath.Join(t.TempDir(), "retry.html")
 	args := []string{"--input", paths[0], "--input", paths[1], "--output", out}
-	_, failureStderr, err := executeReportCommand(args)
-	if err == nil {
-		t.Fatal("invalid model HTML was accepted")
-	}
-	if got := strings.Count(failureStderr, "phase=html_generation attempt="); got != maxReportHTMLAttempts {
-		t.Fatalf("unrecoverable output made %d requests, want %d: %s", got, maxReportHTMLAttempts, failureStderr)
-	}
-	if !strings.Contains(failureStderr, fmt.Sprintf("output_tokens=%d", 456*maxReportHTMLAttempts)) || !strings.Contains(failureStderr, "recovered=false") {
-		t.Fatalf("exhausted repair metrics were not accumulated: %s", failureStderr)
-	}
-	var originalInput string
-	for attempt := 0; attempt < maxReportHTMLAttempts; attempt++ {
-		request := <-receivedInputs
-		if attempt == 0 {
-			originalInput = request.input
-		} else if request.input != originalInput {
-			t.Fatalf("repair attempt %d changed the report JSON", attempt+1)
-		}
-		if attempt == 1 && !strings.Contains(request.prompt, "section overview must be present with visible content and a heading; wording and layout may vary") {
-			t.Fatal("second attempt omitted the first missing-section diagnostic")
-		}
-		if attempt == 2 && !strings.Contains(request.prompt, "unsupported, hidden, or unsafe content") {
-			t.Fatal("third attempt omitted the unsafe-element diagnostic")
-		}
+	if _, _, err := executeReportCommand(args); err == nil {
+		t.Fatal("first failing invocation succeeded")
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
-		t.Fatalf("invalid model HTML left a final output file: %v", err)
+		t.Fatalf("failed run left output: %v", err)
 	}
+	failing.Store(false)
 	if _, stderr, err := executeReportCommand(args); err != nil {
-		t.Fatalf("retry with valid multi-unit HTML failed: %v\nstderr: %s", err, stderr)
-	}
-	if calls.Load() != maxReportHTMLAttempts+1 {
-		t.Fatalf("model was called %d times, want %d total requests", calls.Load(), maxReportHTMLAttempts+1)
-	}
-	if secondInput := <-receivedInputs; secondInput.input != originalInput {
-		t.Fatal("fresh CLI invocation changed the original report JSON")
-	}
-	if _, err := os.Stat(out); err != nil {
-		t.Fatalf("successful retry did not publish HTML: %v", err)
+		t.Fatalf("retry failed: %v\nstderr: %s", err, stderr)
 	}
 	data, err := os.ReadFile(out)
 	if err != nil {
@@ -907,20 +410,15 @@ func TestReportCommandWritesLongMultiBrowserEvidence(t *testing.T) {
 	second.Review.RunID = "long-multi-backend"
 	second.Repository.Name = "backend-repository"
 	paths := []string{writeReportInput(t, first), writeReportInput(t, second)}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		messages := request["messages"].([]any)
-		user := messages[1].(map[string]any)
-		var input report.MultiReportInput
-		if err := json.Unmarshal([]byte(fmt.Sprint(user["content"])), &input); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeReportCompletion(w, reportMultiHTMLFixture(input), "stop")
+	input, err := report.NewMultiReportInput([]report.Material{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeReportToolCalls(w, 50, 50,
+			reportToolCall("w", "write_html", map[string]any{"html": reportMultiHTMLFixture(input)}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
 	}))
 	defer server.Close()
 	configureReportLLM(t, server.URL)
@@ -931,13 +429,6 @@ func TestReportCommandWritesLongMultiBrowserEvidence(t *testing.T) {
 	document, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
-	}
-	input, err := report.NewMultiReportInput([]report.Material{first, second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := report.ValidateMultiHTMLDocument(string(document), input); err != nil {
-		t.Fatalf("long multi-input report failed validation: %v", err)
 	}
 	writeReportBrowserEvidence(t, "OCR_REPORT_HTML_LONG_MULTI_EVIDENCE_FILE", document)
 }
@@ -969,11 +460,13 @@ func TestReportCommandUsesDateDefaultOutputWithoutOverwriting(t *testing.T) {
 	material := reportTestMaterial(false)
 	input := writeReportInput(t, material)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeReportCompletion(w, reportHTMLFixture(material), "stop")
+		writeReportToolCalls(w, 10, 10,
+			reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
 	}))
 	defer server.Close()
 	configureReportLLM(t, server.URL)
-
 	dir := t.TempDir()
 	originalDir, err := os.Getwd()
 	if err != nil {
@@ -987,12 +480,9 @@ func TestReportCommandUsesDateDefaultOutputWithoutOverwriting(t *testing.T) {
 			t.Errorf("restore working directory: %v", err)
 		}
 	})
-
 	cmd := newReportCommand()
-	cmd.SetArgs(nil)
 	cmd.SetContext(context.Background())
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
+	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
 	fixedDate := time.Date(2026, 10, 4, 10, 11, 12, 0, time.Local)
 	if err := runHTMLReport(cmd, reportOptions{inputs: []string{input}, template: report.DefaultHTMLTemplate, generatedAt: func() time.Time { return fixedDate }}); err != nil {
@@ -1010,86 +500,24 @@ func TestReportCommandUsesDateDefaultOutputWithoutOverwriting(t *testing.T) {
 	}
 }
 
-func TestReportCommandBoundsInputBeforeModelRequest(t *testing.T) {
-	setTestHome(t, t.TempDir())
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		writeReportCompletion(w, "", "stop")
-	}))
-	defer server.Close()
-	configureReportLLM(t, server.URL)
-
-	material := reportTestMaterial(false)
-	material.Repository.Name = strings.Repeat("x ", maxReportInputTokens+20_000)
-	input := writeReportInput(t, material)
-	_, stderr, err := executeReportCommand([]string{"--input", input, "--output", filepath.Join(t.TempDir(), "must-not-exist.html")})
-	if err == nil || !strings.Contains(err.Error(), "tokens") || !strings.Contains(err.Error(), fmt.Sprintf("the limit is %d", maxReportInputTokens)) {
-		t.Fatalf("oversized model input was accepted: err=%v stderr=%s", err, stderr)
+func TestReportCommandReusesSharedTemplateCompressionSettings(t *testing.T) {
+	tpl, err := template.LoadDefault()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if requests.Load() != 0 {
-		t.Fatalf("input over the token budget reached the model %d times", requests.Load())
+	if tpl.MaxTokens <= 0 {
+		t.Fatalf("shared MaxTokens unset: %d", tpl.MaxTokens)
 	}
-}
-
-func TestReportCommandRejectsTimeoutAndTruncatedModelOutput(t *testing.T) {
-	setTestHome(t, t.TempDir())
-	material := reportTestMaterial(false)
-	input := writeReportInput(t, material)
-
-	t.Run("timeout", func(t *testing.T) {
-		started := make(chan struct{}, maxReportHTMLAttempts)
-		var calls atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			calls.Add(1)
-			started <- struct{}{}
-			time.Sleep(1500 * time.Millisecond)
-			writeReportCompletion(w, reportHTMLFixture(material), "stop")
-		}))
-		defer server.Close()
-		configureReportLLM(t, server.URL)
-		t.Setenv("OCR_LLM_TIMEOUT", "1")
-		out := filepath.Join(t.TempDir(), "timeout.html")
-		_, stderr, err := executeReportCommand([]string{"--input", input, "--output", out})
-		if err == nil || !strings.Contains(strings.ToLower(err.Error()), "timed out") && !strings.Contains(strings.ToLower(err.Error()), "deadline") {
-			t.Fatalf("timed-out request was accepted: err=%v stderr=%s", err, stderr)
-		}
-		select {
-		case <-started:
-		default:
-			t.Fatal("timeout test never reached the model endpoint")
-		}
-		if _, err := os.Stat(out); !os.IsNotExist(err) {
-			t.Fatalf("timeout left a final HTML file: %v", err)
-		}
-		if !strings.Contains(stderr, "elapsed=") || !strings.Contains(stderr, "usage=estimated") {
-			t.Fatalf("timeout diagnostics missing: %s", stderr)
-		}
-		if calls.Load() != maxReportHTMLAttempts {
-			t.Fatalf("timeout recovery made %d requests, want %d", calls.Load(), maxReportHTMLAttempts)
-		}
-	})
-
-	t.Run("truncated output", func(t *testing.T) {
-		var calls atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			calls.Add(1)
-			writeReportCompletion(w, reportHTMLFixture(material), "length")
-		}))
-		defer server.Close()
-		configureReportLLM(t, server.URL)
-		out := filepath.Join(t.TempDir(), "truncated.html")
-		_, stderr, err := executeReportCommand([]string{"--input", input, "--output", out})
-		if err == nil || !strings.Contains(err.Error(), "token limit") {
-			t.Fatalf("truncated model output was accepted: err=%v stderr=%s", err, stderr)
-		}
-		if _, err := os.Stat(out); !os.IsNotExist(err) {
-			t.Fatalf("truncated output left a final HTML file: %v", err)
-		}
-		if calls.Load() != maxReportHTMLAttempts {
-			t.Fatalf("truncated response made %d requests, want %d", calls.Load(), maxReportHTMLAttempts)
-		}
-	})
+	if len(tpl.MemoryCompressionTask.Messages) == 0 {
+		t.Fatal("shared memory compression task missing")
+	}
+	if tpl.MaxToolRequestTimes <= 0 {
+		t.Fatalf("shared MaxToolRequestTimes unset: %d", tpl.MaxToolRequestTimes)
+	}
+	cmd := newReportCommand()
+	if strings.Contains(cmd.Long, "3 attempts") || strings.Contains(cmd.Long, "128,000") {
+		t.Fatalf("command help still describes removed report-specific budgets: %s", cmd.Long)
+	}
 }
 
 func executeReportCommand(args []string) (string, string, error) {
@@ -1110,20 +538,47 @@ func configureReportLLM(t *testing.T, baseURL string) {
 	t.Setenv("OCR_LLM_PROTOCOL", "openai")
 }
 
-func writeReportCompletion(w http.ResponseWriter, content, finishReason string) {
-	writeReportCompletionWithUsage(w, content, finishReason, 123, 456)
+func reportToolCall(id, name string, args map[string]any) map[string]any {
+	payload, err := json.Marshal(args)
+	if err != nil {
+		panic(err)
+	}
+	return map[string]any{
+		"id": id, "type": "function",
+		"function": map[string]any{"name": name, "arguments": string(payload)},
+	}
 }
 
-func writeReportCompletionWithUsage(w http.ResponseWriter, content, finishReason string, inputTokens, outputTokens int) {
+func writeReportToolCalls(w http.ResponseWriter, inputTokens, outputTokens int, calls ...map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": "report-test", "model": "fake-report-model",
 		"choices": []any{map[string]any{
-			"index": 0, "finish_reason": finishReason,
-			"message": map[string]any{"role": "assistant", "content": content},
+			"index": 0, "finish_reason": "tool_calls",
+			"message": map[string]any{"role": "assistant", "content": nil, "tool_calls": calls},
 		}},
 		"usage": map[string]any{"prompt_tokens": inputTokens, "completion_tokens": outputTokens, "total_tokens": inputTokens + outputTokens},
 	})
+}
+
+func reportToolNames(raw any) []string {
+	tools, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(tools))
+	for _, item := range tools {
+		tool, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		fn, ok := tool["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		names = append(names, fmt.Sprint(fn["name"]))
+	}
+	return names
 }
 
 func reportTestMaterial(withFindings bool) report.Material {

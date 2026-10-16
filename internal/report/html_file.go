@@ -92,6 +92,22 @@ func WritePreparedMultiHTML(target string, automatic bool, prepared PreparedHTML
 	}, os.Link)
 }
 
+// DeliverHTML publishes model-produced HTML without parsing, validating, or
+// rewriting its content. Path checks, anti-overwrite, and atomic save still apply.
+func DeliverHTML(target string, automatic bool, document string) (string, error) {
+	if document == "" || len(document) > MaxHTMLDocumentBytes {
+		return "", fmt.Errorf("HTML document size must be between 1 byte and %d bytes", MaxHTMLDocumentBytes)
+	}
+	return publishHTML(target, automatic, document, func(dir, pattern string) (materialTempFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}, os.Link)
+}
+
+// HTMLStylesheet returns the bundled offline report stylesheet for tool-based reading.
+func HTMLStylesheet() string {
+	return reportHTMLStyles
+}
+
 func writeHTMLWith(target string, automatic bool, document string, material Material, createTemp func(string, string) (materialTempFile, error), link func(string, string) error) (string, error) {
 	return writeHTMLWithValidation(target, automatic, document, func(prepared string) error {
 		return ValidateHTMLDocument(prepared, material)
