@@ -33,3 +33,20 @@
   - `go test ./cmd/opencodereview -run TestReportCommand`
   - 复测入口：[html-report](../../../project-docs/retests/html-report/README.md)
 - 说明：未改写 01–09 历史验收档案；用户说明见 mock/report README
+
+## 审查收尾（2026-10-16）
+
+- 执行者：implement 会话（Cursor Grok 4.6）
+- 对照：[智能体循环审查与修复要求](../agent-loop-review-and-repair.md) 第 1–5 项；第 6 项按后续确认只删除复述注释、保留必要英文说明
+- 实现要点：
+  - 模板与系统提示改为由智能体生成可直接打开的完整 HTML；样式文件是参考资源，应用不再插入样式或控件；去掉旧样式/脚本禁令和固定 DOM 要求
+  - 共享循环未完成（含提前停止）时返回停止原因且不发布 HTML，即使已经调用过 `write_html`
+  - 暂存清理捕获 `MkdirTemp` 后的固定目录路径，避免具名返回把路径清空后漏删
+  - 命令级测试改为读取真实暂存 JSON/模板/样式；另用隔离后的共享 `MaxTokens` 驱动 report 实际压缩任务，压缩成功后再 `write_html` + `task_done`
+  - 必跑复测入口去掉旧版浏览器 DOM/脚本禁令；`verify-browser-report.cjs` 仅保留为工单 09 档案脚本
+- 测试（已执行）：
+  - `go test ./internal/report ./internal/tool ./cmd/opencodereview -run "TestHTMLTemplateLetsAgentOwnCompleteDocument|TestWriteHTML|TestDeliverHTML|TestReportCommand|TestStageReportResources" -count=1 -timeout=180s`：3 个包 32 项通过
+  - `make check`：license 检查通过；`english-check` 仍因档案 `project-docs/retests/archive/review-report-2026-10/manual-sample/` 中既有中文失败，不是本次新增源码
+  - `ocr review --audience agent`：4 个选中项，0 条评论
+  - 未调用真实模型生成报告 HTML；未跑 `-race`（当前环境 `CGO_ENABLED=0`）
+- 未验证：真实模型生成效果、视觉质量和浏览器安全性

@@ -10,18 +10,16 @@ import (
 	"sync"
 )
 
-// WriteHTMLName is the tool name used by report generation to deliver HTML.
 const WriteHTMLName = "write_html"
 
-// HTMLDraft stores the latest HTML draft written during one report run.
-// It does not parse, validate, or rewrite HTML content.
+// HTMLDraft holds the latest write_html payload until the command publishes a file.
+// Content is stored as-is: nothing here parses, validates, or rewrites HTML.
 type HTMLDraft struct {
 	mu      sync.Mutex
 	content string
 	written bool
 }
 
-// Content returns the latest draft and whether write_html was called at least once.
 func (d *HTMLDraft) Content() (string, bool) {
 	if d == nil {
 		return "", false
@@ -31,7 +29,6 @@ func (d *HTMLDraft) Content() (string, bool) {
 	return d.content, d.written
 }
 
-// Set replaces the draft with content. Empty content is rejected as a tool error.
 func (d *HTMLDraft) Set(content string) error {
 	if d == nil {
 		return fmt.Errorf("HTML draft store is unavailable")
@@ -46,14 +43,12 @@ func (d *HTMLDraft) Set(content string) error {
 	return nil
 }
 
-// WriteHTMLProvider saves the model's HTML draft for later file delivery.
 type WriteHTMLProvider struct {
 	Draft     *HTMLDraft
 	MaxBytes  int
 	toolValue Tool
 }
 
-// NewWriteHTML returns a write_html provider that stores drafts in draft.
 func NewWriteHTML(draft *HTMLDraft, maxBytes int) *WriteHTMLProvider {
 	return &WriteHTMLProvider{
 		Draft:     draft,

@@ -7,7 +7,7 @@
 | 场景 | 用途 |
 |---|---|
 | [报告材料](report-material/README.md) | 单提交、分支和工作区材料，完整性及失败恢复 |
-| [HTML 报告](html-report/README.md) | 单份、多份、长报告、离线浏览器和打印 |
+| [HTML 报告](html-report/README.md) | 智能体循环交付、材料读取、压缩继续、失败恢复和多份输入顺序 |
 | [外部知识访问](knowledge-access/README.md) | MCP 授权目录、文件读取边界和真实模型知识应用 |
 | [历史验收档案](archive/README.md) | 本次功能集成时的逐次测试结果、失败尝试和审查证据 |
 

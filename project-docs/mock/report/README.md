@@ -157,7 +157,7 @@ $material.sections.knowledge_sources | ConvertTo-Json -Depth 20
 Start-Process 'D:\WorkPlace\your-project\review.html'
 ```
 
-`report` 通过与 review 相同的智能体循环生成 HTML：模型按需读取报告 JSON、模板和样式，再用 `write_html` 交付。提示词建议优先依据这些材料、避免重复审查源码，但这不是源码访问拦截。首轮不解析或校验 HTML 内容、脚本或样式；失败时用同一份 JSON 再跑即可。浏览器应能离线打开 HTML；排版和措辞允许差异。
+`report` 通过与 review 相同的智能体循环生成 HTML：模型按需读取报告 JSON、模板和样式，再用 `write_html` 交付完整、可离线打开的文档。样式文件只是参考，应用不会再插入样式或控件。提示词建议优先依据这些材料、避免重复审查源码，但这不是源码访问拦截。首轮不解析或校验 HTML 内容、脚本或样式；循环未完成时不会发布报告。失败时用同一份 JSON 再跑即可。浏览器应能离线打开 HTML；排版和措辞允许差异。
 
 多份审查合成一份 HTML 时，重复 `--input`：
 

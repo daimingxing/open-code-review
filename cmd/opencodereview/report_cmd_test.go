@@ -26,7 +26,6 @@ import (
 	"github.com/alibaba/open-code-review/internal/session"
 )
 
-
 func TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	material := reportTestLongMaterial()
@@ -47,8 +46,33 @@ func TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes(t *testing.T)
 				http.Error(w, "tools missing", http.StatusBadRequest)
 				return
 			}
-			writeReportToolCalls(w, 100, 20, reportToolCall("call_read", "file_read", map[string]any{"file_path": "ignored.json"}))
+			user := fmt.Sprint(request["messages"].([]any)[1].(map[string]any)["content"])
+			jsonPath := reportPromptResource(user, "input.report.json")
+			templatePath := reportPromptResource(user, "template.md")
+			stylesPath := reportPromptResource(user, "styles.css")
+			if jsonPath == "" || templatePath == "" || stylesPath == "" {
+				http.Error(w, "staged paths missing from prompt", http.StatusBadRequest)
+				return
+			}
+			writeReportToolCalls(w, 100, 20,
+				reportToolCall("call_json", "file_read", map[string]any{"file_path": jsonPath}),
+				reportToolCall("call_tpl", "file_read", map[string]any{"file_path": templatePath}),
+				reportToolCall("call_css", "file_read", map[string]any{"file_path": stylesPath}),
+			)
 		case 2:
+			text := reportRequestText(request)
+			if !strings.Contains(text, "report-run-07") {
+				http.Error(w, "file_read did not return staged report JSON", http.StatusBadRequest)
+				return
+			}
+			if !strings.Contains(text, "\u53ef\u76f4\u63a5\u6253\u5f00") {
+				http.Error(w, "file_read did not return staged template", http.StatusBadRequest)
+				return
+			}
+			if !strings.Contains(text, ".report-filters") {
+				http.Error(w, "file_read did not return staged stylesheet", http.StatusBadRequest)
+				return
+			}
 			writeReportToolCalls(w, 120, 40,
 				reportToolCall("call_write", "write_html", map[string]any{"html": reportHTMLFixture(material)}),
 				reportToolCall("call_done", "task_done", map[string]any{"state": "DONE"}),
@@ -82,6 +106,9 @@ func TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes(t *testing.T)
 	}
 	if !strings.Contains(system, "Prefer the staged report JSON") || !strings.Contains(system, "Avoid re-reading") {
 		t.Fatalf("system prompt missing material-first guidance: %s", system)
+	}
+	if !strings.Contains(system, "will not insert styles") || !strings.Contains(system, "ready-to-open") {
+		t.Fatalf("system prompt still implies the application completes the HTML: %s", system)
 	}
 	toolNames := reportToolNames(first["tools"])
 	for _, name := range []string{"file_read", "file_find", "code_search", "write_html", "task_done"} {
@@ -140,6 +167,45 @@ func TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes(t *testing.T)
 	}
 	if !strings.Contains(string(got), "<script>alert(1)</script>") {
 		t.Fatal("delivered HTML was altered or rejected for script content")
+	}
+}
+
+func TestReportCommandDoesNotPublishWhenLoopStopsEarly(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	material := reportTestMaterial(false)
+	input := writeReportInput(t, material)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			writeReportToolCalls(w, 10, 10, reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}))
+			return
+		}
+		writeReportToolCalls(w, 5, 5, reportToolCall("d", "task_done", map[string]any{"state": "DONE"}))
+	}))
+	defer server.Close()
+	configureReportLLM(t, server.URL)
+	tpl, err := template.LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl.MaxToolRequestTimes = 1
+	out := filepath.Join(t.TempDir(), "early-stop.html")
+	cmd := newReportCommand()
+	cmd.SetContext(context.Background())
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	err = runHTMLReport(cmd, reportOptions{
+		inputs:       []string{input},
+		template:     report.DefaultHTMLTemplate,
+		output:       out,
+		outputSet:    true,
+		loopTemplate: tpl,
+	})
+	if err == nil || !strings.Contains(err.Error(), "maximum tool-request rounds") {
+		t.Fatalf("early-stop error = %v stderr=%s", err, stderr.String())
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("early stop published HTML: %v", err)
 	}
 }
 
@@ -500,6 +566,118 @@ func TestReportCommandUsesDateDefaultOutputWithoutOverwriting(t *testing.T) {
 	}
 }
 
+func TestStageReportResourcesCleansUpAfterWriteFailure(t *testing.T) {
+	workDir := t.TempDir()
+	material := reportTestMaterial(false)
+	original := stagedFileWriter
+	t.Cleanup(func() { stagedFileWriter = original })
+	stagedFileWriter = func(name string, data []byte, perm os.FileMode) error {
+		if filepath.Base(name) == "template.md" {
+			return fmt.Errorf("forced staging write failure")
+		}
+		return original(name, data, perm)
+	}
+	if _, _, err := stageReportResources(workDir, []report.Material{material}, false, report.MultiReportInput{}, "# template"); err == nil || !strings.Contains(err.Error(), "forced staging write failure") {
+		t.Fatalf("stage error = %v", err)
+	}
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".ocr-report-stage-") {
+			t.Fatalf("staging directory leaked after write failure: %s", entry.Name())
+		}
+	}
+}
+
+func TestReportCommandCompressesContextThenCompletes(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	material := reportTestLongMaterial()
+	input := writeReportInput(t, material)
+	var (
+		mainRounds     atomic.Int32
+		compressions   atomic.Int32
+		continuedAfter atomic.Bool
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		text := reportRequestText(request)
+		if !reportRequestHasTools(request) {
+			compressions.Add(1)
+			if !strings.Contains(text, "conversation summarization assistant") {
+				http.Error(w, "compression request missing shared task prompt", http.StatusBadRequest)
+				return
+			}
+			writeReportText(w, 80, 40, strings.Join([]string{
+				"### Identified Code Issues",
+				"None.",
+				"### Tool Call Conclusions",
+				"Read the staged report JSON.",
+				"### Pending Tasks",
+				"Write HTML and finish.",
+				"### Key Decisions",
+				"Continue from the staged material.",
+				"### Current Progress",
+				"Materials have been read.",
+			}, "\n"))
+			return
+		}
+		n := mainRounds.Add(1)
+		if strings.Contains(text, "<previous_review_summary>") {
+			continuedAfter.Store(true)
+		}
+		if n == 1 {
+			user := fmt.Sprint(request["messages"].([]any)[1].(map[string]any)["content"])
+			jsonPath := reportPromptResource(user, "input.report.json")
+			if jsonPath == "" {
+				http.Error(w, "staged JSON path missing", http.StatusBadRequest)
+				return
+			}
+			writeReportToolCalls(w, 200, 20, reportToolCall("call_json", "file_read", map[string]any{"file_path": jsonPath}))
+			return
+		}
+		writeReportToolCalls(w, 40, 20,
+			reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}),
+			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
+		)
+	}))
+	defer server.Close()
+	configureReportLLM(t, server.URL)
+	tpl, err := template.LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl.MaxTokens = 4000
+	out := filepath.Join(t.TempDir(), "compressed.html")
+	cmd := newReportCommand()
+	cmd.SetContext(context.Background())
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	if err := runHTMLReport(cmd, reportOptions{
+		inputs:       []string{input},
+		template:     report.DefaultHTMLTemplate,
+		output:       out,
+		outputSet:    true,
+		loopTemplate: tpl,
+	}); err != nil {
+		t.Fatalf("compressed report failed: %v\nstderr: %s", err, stderr.String())
+	}
+	if compressions.Load() == 0 {
+		t.Fatal("report loop never called the shared memory compression task")
+	}
+	if !continuedAfter.Load() {
+		t.Fatal("report loop did not continue with tools after compression")
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("compressed report did not publish HTML: %v", err)
+	}
+}
+
 func TestReportCommandReusesSharedTemplateCompressionSettings(t *testing.T) {
 	tpl, err := template.LoadDefault()
 	if err != nil {
@@ -547,6 +725,49 @@ func reportToolCall(id, name string, args map[string]any) map[string]any {
 		"id": id, "type": "function",
 		"function": map[string]any{"name": name, "arguments": string(payload)},
 	}
+}
+
+func writeReportText(w http.ResponseWriter, inputTokens, outputTokens int, content string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id": "report-test", "model": "fake-report-model",
+		"choices": []any{map[string]any{
+			"index": 0, "finish_reason": "stop",
+			"message": map[string]any{"role": "assistant", "content": content},
+		}},
+		"usage": map[string]any{"prompt_tokens": inputTokens, "completion_tokens": outputTokens, "total_tokens": inputTokens + outputTokens},
+	})
+}
+
+func reportRequestHasTools(request map[string]any) bool {
+	raw, ok := request["tools"]
+	if !ok || raw == nil {
+		return false
+	}
+	tools, ok := raw.([]any)
+	return ok && len(tools) > 0
+}
+
+func reportRequestText(request map[string]any) string {
+	var builder strings.Builder
+	messages, _ := request["messages"].([]any)
+	for _, item := range messages {
+		msg, _ := item.(map[string]any)
+		builder.WriteString(fmt.Sprint(msg["content"]))
+		builder.WriteByte('\n')
+	}
+	return builder.String()
+}
+
+func reportPromptResource(user, marker string) string {
+	for _, line := range strings.Split(user, "\n") {
+		for _, field := range strings.Fields(line) {
+			if strings.Contains(field, marker) {
+				return field
+			}
+		}
+	}
+	return ""
 }
 
 func writeReportToolCalls(w http.ResponseWriter, inputTokens, outputTokens int, calls ...map[string]any) {

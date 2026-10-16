@@ -1,3 +1,4 @@
+// Historical ticket-09 browser assertions for archived synthetic HTML. Not a current required retest. allow-non-english: 中文复测说明
 // 工单 09 的离线浏览器复测，只输出计数、交互结果和安全结论，不输出材料正文。 allow-non-english: 中文复测说明
 const { chromium } = require('playwright');
 const { pathToFileURL } = require('node:url');
