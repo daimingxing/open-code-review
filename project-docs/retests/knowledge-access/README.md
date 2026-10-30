@@ -4,6 +4,16 @@
 
 ## MCP 边界探针
 
+OCR 在调用前依据工具实际声明校验可确定的参数错误，返回模型可纠正的反馈，不触发服务调用或伪造知识观测；参数符合声明后仍由服务执行并限制授权目录。声明允许额外字段时原样传递，不承诺识别被服务忽略的参数，也不为第三方工具补造行区间读取能力。
+
+可控服务与智能体循环回归（无真实模型用量）：
+
+```powershell
+go test ./internal/mcp ./internal/llmloop -run 'TestMCPArgumentFeedback|TestRunMainTaskCorrectsMCPArguments|TestRunMainTaskTextOnlyThenDone|TestUsageStatus' -count=1 -timeout=90s
+```
+
+预期明确错误参数未到达服务，反馈进入原对话，修正后可读取并结束；合法开放字段及动态键保持可用，越界仍被服务拒绝。
+
 需要 PowerShell 7、Node.js/npm、可访问 npm registry。探针只在系统临时目录创建测试文件：
 
 ```powershell

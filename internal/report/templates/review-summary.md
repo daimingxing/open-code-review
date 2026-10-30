@@ -9,7 +9,7 @@
 - 所有 finding 都要列出，显示中文问题说明、严重等级、文件与行号、源代码及 JSON 中提供的证据或未采集原因；有建议时一并显示。不得改变问题结论或证据内容。
 - 显示基础风险和审查覆盖统计，数值与输入材料一致。其他报告材料可选择有用内容进行概括，不要求逐字段罗列。
 - 材料支持时，围绕 overview、quality-coverage、finding-details、changes、achievements、people、governance、limitations、sources 九个内容区域组织报告。章节标题、标签、内部组织和措辞可自行决定。
-- 只输出完整 HTML 源码，不输出 Markdown 围栏、前言或尾注。
+- 首次通过 `write_html` 提交完整 HTML 源码，不加 Markdown 围栏、前言或尾注。后续局部修订可用 `read_html` 查看、`edit_html` 编辑草稿，无需重复输出全文；完成后调用 `task_done`。
 
 ## HTML 生成
 

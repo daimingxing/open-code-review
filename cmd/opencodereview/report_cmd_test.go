@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/alibaba/open-code-review/internal/config/template"
+	"github.com/alibaba/open-code-review/internal/llm"
+	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 )
@@ -632,6 +634,10 @@ func TestReportCommandCompressesContextThenCompletes(t *testing.T) {
 			continuedAfter.Store(true)
 		}
 		if n == 1 {
+			writeReportToolCalls(w, 40, 20, reportToolCall("draft", "write_html", map[string]any{"html": "<main>before compression</main>"}))
+			return
+		}
+		if n == 2 {
 			user := fmt.Sprint(request["messages"].([]any)[1].(map[string]any)["content"])
 			jsonPath := reportPromptResource(user, "input.report.json")
 			if jsonPath == "" {
@@ -641,8 +647,16 @@ func TestReportCommandCompressesContextThenCompletes(t *testing.T) {
 			writeReportToolCalls(w, 200, 20, reportToolCall("call_json", "file_read", map[string]any{"file_path": jsonPath}))
 			return
 		}
+		if n == 3 {
+			writeReportToolCalls(w, 40, 20, reportToolCall("read_draft", "read_html", map[string]any{}))
+			return
+		}
+		if !strings.Contains(text, "1|<main>before compression</main>") {
+			http.Error(w, "draft was not available after compression", http.StatusBadRequest)
+			return
+		}
 		writeReportToolCalls(w, 40, 20,
-			reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}),
+			reportToolCall("edit_draft", "edit_html", map[string]any{"old_text": "before compression", "new_text": "after compression"}),
 			reportToolCall("d", "task_done", map[string]any{"state": "DONE"}),
 		)
 	}))
@@ -675,6 +689,105 @@ func TestReportCommandCompressesContextThenCompletes(t *testing.T) {
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Fatalf("compressed report did not publish HTML: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || string(data) != "<main>after compression</main>" {
+		t.Fatalf("compressed draft = %q, err=%v", data, err)
+	}
+}
+
+func TestReportCommandEditsDraftAndFinishesAfterText(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	input := writeReportInput(t, reportTestMaterial(false))
+	original := "<main>\n<output>14 / 14</output>\n<script>run()</script>\n</main>"
+	var rounds atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "bad request", 400)
+			return
+		}
+		text := reportRequestText(request)
+		switch rounds.Add(1) {
+		case 1:
+			for _, name := range []string{"write_html", "edit_html", "read_html"} {
+				if !slices.Contains(reportToolNames(request["tools"]), name) {
+					http.Error(w, "missing draft tool", 400)
+					return
+				}
+			}
+			writeReportToolCalls(w, 10, 5, reportToolCall("w", "write_html", map[string]any{"html": original}))
+		case 2:
+			if !strings.Contains(text, "not published") {
+				http.Error(w, "draft feedback missing", 400)
+				return
+			}
+			writeReportToolCalls(w, 10, 5, reportToolCall("r", "read_html", map[string]any{"start_line": 2, "end_line": 2}))
+		case 3:
+			if !strings.Contains(text, "LINE_RANGE: 2-2") {
+				http.Error(w, "draft read missing", 400)
+				return
+			}
+			writeReportToolCalls(w, 10, 5, reportToolCall("bad", "edit_html", map[string]any{"old_text": "14", "new_text": "13"}))
+		case 4:
+			if !strings.Contains(text, "matched 2") {
+				http.Error(w, "ambiguous edit was not rejected", 400)
+				return
+			}
+			writeReportToolCalls(w, 10, 5, reportToolCall("e", "edit_html", map[string]any{"old_text": "<output>14 / 14</output>", "new_text": "<output>13 / 13</output>"}))
+		case 5:
+			writeReportText(w, 10, 5, "The report is ready.")
+		case 6:
+			if !strings.Contains(text, "use task_done if finished") {
+				http.Error(w, "text response did not continue in the same conversation", 400)
+				return
+			}
+			writeReportToolCalls(w, 10, 5, reportToolCall("d", "task_done", map[string]any{"state": "DONE"}))
+		default:
+			http.Error(w, "unexpected request", 400)
+		}
+	}))
+	defer server.Close()
+	configureReportLLM(t, server.URL)
+	out := filepath.Join(t.TempDir(), "edited.html")
+	_, stderr, err := executeReportCommand([]string{"--input", input, "--output", out})
+	if err != nil {
+		t.Fatalf("edit report: %v stderr=%s", err, stderr)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || string(data) != strings.Replace(original, "14 / 14", "13 / 13", 1) {
+		t.Fatalf("output=%q err=%v", data, err)
+	}
+}
+
+func TestReportUsageSummary(t *testing.T) {
+	runner := llmloop.NewRunner(llmloop.Deps{})
+	var b bytes.Buffer
+	writeHTMLStageSummary(&b, time.Second, runner)
+	if !strings.Contains(b.String(), "input_tokens=unavailable") || !strings.Contains(b.String(), "cache_read_tokens=unavailable") {
+		t.Fatal(b.String())
+	}
+	runner.RecordUsage(&llm.UsageInfo{PromptTokens: 100, CompletionTokens: 20, CacheReadTokens: 75, CacheReadKnown: true})
+	runner.RecordUsage(&llm.UsageInfo{PromptTokens: 200, CompletionTokens: 30, CacheReadKnown: true})
+	b.Reset()
+	writeHTMLStageSummary(&b, time.Second, runner)
+	for _, want := range []string{"input_tokens=300", "output_tokens=50", "usage=reported", "cache_read_tokens=75", "cache_read_usage=reported", "cache_write_tokens=unavailable", "token_scope=cumulative_requests"} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("missing %s in %s", want, b.String())
+		}
+	}
+	runner.RecordUsage(nil)
+	b.Reset()
+	writeHTMLStageSummary(&b, time.Second, runner)
+	if !strings.Contains(b.String(), "usage=partial") || !strings.Contains(b.String(), "cache_read_usage=partial") {
+		t.Fatal(b.String())
+	}
+	b.Reset()
+	m := reportTestMaterial(false)
+	m.Review.ElapsedMS = 1200
+	writeMaterialStageMetrics(&b, []report.Material{m, m})
+	if !strings.Contains(b.String(), "review_elapsed=2.4s timing_scope=input_review_sum") || strings.Contains(b.String(), " units=2 elapsed=") {
+		t.Fatal(b.String())
 	}
 }
 

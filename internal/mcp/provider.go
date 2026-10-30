@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -29,6 +30,10 @@ func (p *Provider) Tool() tool.Tool {
 
 func (p *Provider) Execute(ctx context.Context, args map[string]any) (string, error) {
 	result, actualResult, err, serviceError := p.client.CallToolForObservation(ctx, p.toolName, args)
+	var localError *argumentError
+	if errors.As(err, &localError) {
+		return localError.Error(), nil
+	}
 	if p.observe != nil {
 		p.observe(p.client.Name(), p.toolName, args, actualResult, err, serviceError)
 	}

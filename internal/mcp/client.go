@@ -181,6 +181,9 @@ func (c *Client) CallToolWithStatus(ctx context.Context, name string, args map[s
 
 // CallToolForObservation 返回模型可见文本与 MCP 实际文本，供观测器只对服务返回值求摘要。 // allow-non-english: Chinese API contract comment required by repository instructions
 func (c *Client) CallToolForObservation(ctx context.Context, name string, args map[string]any) (string, string, error, bool) {
+	if feedback := c.validateArguments(name, args); feedback != "" {
+		return "", "", &argumentError{feedback: feedback}, false
+	}
 	params := &mcp.CallToolParams{
 		Name:      name,
 		Arguments: args,

@@ -1,6 +1,6 @@
 # HTML 报告回归
 
-自动化测试检查智能体循环交付、真实暂存材料读取、共享压缩后继续完成、提前停止不发布、失败不覆盖和多份输入顺序。本阶段必跑验收看工具执行、退出状态、文件交付和清理，不以固定 DOM、筛选器、CSS 或脚本禁令判定通过。
+自动化测试检查智能体循环交付、真实暂存材料读取、草稿局部读取与精确编辑、共享压缩后继续编辑、提前停止不发布、失败不覆盖和多份输入顺序。运行日志区分草稿、结束和发布，统计区分历史审查耗时与当前生成耗时、累计用量与缓存信息。本阶段必跑验收看工具执行、退出状态、文件交付和清理，不以固定 DOM、筛选器、CSS 或脚本禁令判定通过。
 
 首轮不因 HTML 内容、脚本或样式检查拒绝交付；提示词建议优先读取报告 JSON 与模板/样式，但不会增加源码路径权限拦截。样式文件是参考资源，应用不会再插入样式或控件。历史 01–09 验收证据仍在[验收档案索引](../archive/README.md)，本目录只保留可复跑入口。
 
@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 go test ./internal/report ./internal/tool -count=1 -timeout=90s
 if ($LASTEXITCODE -ne 0) { throw 'report/tool package tests failed' }
-go test ./cmd/opencodereview -run '^(TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes|TestReportCommandDoesNotPublishWhenLoopStopsEarly|TestReportCommandCompressesContextThenCompletes|TestStageReportResourcesCleansUpAfterWriteFailure|TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateBeforeModel|TestReportCommandMultiInputCanRetryAfterModelFailure|TestReportCommandFailsWhenHTMLNeverWritten|TestReportCommandRejectsExistingExplicitOutputBeforeLoop)$' -count=1 -timeout=180s
+go test ./cmd/opencodereview -run '^(TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes|TestReportCommandDoesNotPublishWhenLoopStopsEarly|TestReportCommandCompressesContextThenCompletes|TestReportCommandEditsDraftAndFinishesAfterText|TestReportUsageSummary|TestStageReportResourcesCleansUpAfterWriteFailure|TestReportCommandMultiInputPreservesOrderAndRejectsDuplicateBeforeModel|TestReportCommandMultiInputCanRetryAfterModelFailure|TestReportCommandFailsWhenHTMLNeverWritten|TestReportCommandRejectsExistingExplicitOutputBeforeLoop)$' -count=1 -timeout=180s
 if ($LASTEXITCODE -ne 0) { throw 'HTML agent-loop CLI tests failed' }
 ```
 

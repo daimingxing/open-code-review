@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -284,6 +285,110 @@ func TestProvider_Execute_Integration(t *testing.T) {
 	result, err = failing.Execute(ctx, nil)
 	if err != nil || !strings.Contains(result, "controlled failure") || !observedServiceError {
 		t.Fatalf("IsError changed the model response or was hidden from observer: result=%q err=%v observed=%v", result, err, observedServiceError)
+	}
+}
+
+func TestMCPArgumentFeedbackPreservesServiceBoundary(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	server := mcp.NewServer(&mcp.Implementation{Name: "argument-test", Version: "1"}, nil)
+	for _, name := range []string{"closed", "open", "pattern"} {
+		schema := map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}}
+		if name != "open" {
+			schema["additionalProperties"] = false
+		}
+		if name == "pattern" {
+			schema["patternProperties"] = map[string]any{"^x_": map[string]any{"type": "number"}}
+		}
+		server.AddTool(&mcp.Tool{Name: name, InputSchema: schema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			calls.Add(1)
+			var args map[string]any
+			_ = json.Unmarshal(req.Params.Arguments, &args)
+			if args["path"] == "outside" {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Access denied - outside allowed directories"}}}, nil
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(req.Params.Arguments)}}}, nil
+		})
+	}
+	st, ct := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	sdkClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	cs, err := sdkClient.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	listed, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{name: "knowledge", session: cs, tools: listed.Tools}
+	observations := 0
+	serviceErrors := 0
+	provider := func(name string) *Provider {
+		return &Provider{toolName: name, client: c, observe: func(_ string, _ string, _ map[string]any, _ string, _ error, failed bool) {
+			observations++
+			if failed {
+				serviceErrors++
+			}
+		}}
+	}
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"closed", map[string]any{}, "path"},
+		{"closed", map[string]any{"path": 42}, "path"},
+		{"closed", map[string]any{"path": "private-token-value", "start_line": 3}, "start_line"},
+		{"unknown", map[string]any{}, "not available"},
+	} {
+		result, err := provider(tc.name).Execute(ctx, tc.args)
+		if err != nil || !strings.Contains(result, tc.want) || strings.Contains(result, "private-token-value") {
+			t.Fatalf("result=%q err=%v", result, err)
+		}
+		if calls.Load() != 0 || observations != 0 {
+			t.Fatal("local invalid call reached service or knowledge observer")
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"closed", map[string]any{"path": "knowledge.md"}, "knowledge.md"},
+		{"open", map[string]any{"path": "knowledge.md", "start_line": 3}, "start_line"},
+		{"pattern", map[string]any{"path": "knowledge.md", "x_offset": 3}, "x_offset"},
+		{"closed", map[string]any{"path": "outside"}, "Access denied"},
+	} {
+		result, err := provider(tc.name).Execute(ctx, tc.args)
+		if err != nil || !strings.Contains(result, tc.want) {
+			t.Fatalf("result=%q err=%v", result, err)
+		}
+	}
+	if calls.Load() != 4 || observations != 4 || serviceErrors != 1 {
+		t.Fatalf("calls=%d observations=%d serviceErrors=%d", calls.Load(), observations, serviceErrors)
+	}
+}
+
+func TestMCPArgumentDeclaredConstraints(t *testing.T) {
+	client := newTestClient("test", []*mcp.Tool{{Name: "read", InputSchema: map[string]any{
+		"type": "object", "properties": map[string]any{
+			"mode":  map[string]any{"type": "string", "enum": []string{"head", "tail"}},
+			"count": map[string]any{"type": "integer", "minimum": 1},
+		},
+	}}})
+	for _, args := range []map[string]any{{"mode": "middle"}, {"count": float64(0)}, {"count": 1.5}} {
+		if feedback := client.validateArguments("read", args); !strings.Contains(feedback, "no service call") {
+			t.Fatal(feedback)
+		}
+	}
+	if feedback := client.validateArguments("read", map[string]any{"mode": "head", "count": float64(1), "extension": true}); feedback != "" {
+		t.Fatal(feedback)
 	}
 }
 

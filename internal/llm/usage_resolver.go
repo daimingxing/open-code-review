@@ -15,6 +15,9 @@ type UsageInfo struct {
 	CompletionTokens int64 `json:"completion_tokens"`
 	CacheReadTokens  int64 `json:"cache_read_tokens,omitempty"`
 	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+	CacheReadKnown   bool  `json:"cache_read_known,omitempty"`
+	CacheWriteKnown  bool  `json:"cache_write_known,omitempty"`
+	Incomplete       bool  `json:"incomplete,omitempty"`
 }
 
 var promptTokensPaths = []string{
@@ -80,12 +83,12 @@ func resolveUsage(raw []byte) *UsageInfo {
 	}
 
 	total, hasAny := probePath(rawBody, totalTokensPaths)
-	prompt, _ := probePath(rawBody, promptTokensPaths)
-	completion, _ := probePath(rawBody, completionTokensPaths)
-	cacheRead, cacheReadIdx, _ := probePathIndex(rawBody, cacheReadTokensPaths)
-	cacheWrite, cacheWriteIdx, _ := probePathIndex(rawBody, cacheWriteTokensPaths)
+	prompt, hasPrompt := probePath(rawBody, promptTokensPaths)
+	completion, hasCompletion := probePath(rawBody, completionTokensPaths)
+	cacheRead, cacheReadIdx, hasCacheRead := probePathIndex(rawBody, cacheReadTokensPaths)
+	cacheWrite, cacheWriteIdx, hasCacheWrite := probePathIndex(rawBody, cacheWriteTokensPaths)
 
-	if !hasAny && prompt == 0 && completion == 0 {
+	if !hasAny && !hasPrompt && !hasCompletion && !hasCacheRead && !hasCacheWrite {
 		return nil
 	}
 
@@ -95,6 +98,9 @@ func resolveUsage(raw []byte) *UsageInfo {
 		CompletionTokens: completion,
 		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: cacheWrite,
+		CacheReadKnown:   hasCacheRead,
+		CacheWriteKnown:  hasCacheWrite,
+		Incomplete:       !hasPrompt || !hasCompletion,
 	}
 
 	// If TotalTokens wasn't explicitly available but we have prompt+completion, compute it.

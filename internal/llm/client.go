@@ -1759,6 +1759,10 @@ func (c *AnthropicClient) mapAnthropicResponse(sdkResp *anthropic.Message) *Chat
 			CacheWriteTokens: u.CacheCreationInputTokens,
 		}
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		if raw := resolveUsage([]byte(sdkResp.RawJSON())); raw != nil {
+			usage.CacheReadKnown, usage.CacheWriteKnown = raw.CacheReadKnown, raw.CacheWriteKnown
+			usage.Incomplete = raw.Incomplete
+		}
 	} else {
 		usage = resolveUsage([]byte(sdkResp.RawJSON()))
 	}
