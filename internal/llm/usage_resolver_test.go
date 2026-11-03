@@ -5,6 +5,29 @@ package llm
 
 import "testing"
 
+func TestResolveUsagePresence(t *testing.T) {
+	for _, tc := range []struct {
+		raw                            string
+		missing, incomplete, readKnown bool
+	}{
+		{`{}`, true, false, false},
+		{`{"usage":{"prompt_tokens":0,"completion_tokens":0,"prompt_tokens_details":{"cached_tokens":0}}}`, false, false, true},
+		{`{"usage":{"total_tokens":20}}`, false, true, false},
+		{`{"usage":{"prompt_tokens":10}}`, false, true, false},
+	} {
+		u := resolveUsage([]byte(tc.raw))
+		if tc.missing {
+			if u != nil {
+				t.Fatal(u)
+			}
+			continue
+		}
+		if u == nil || u.Incomplete != tc.incomplete || u.CacheReadKnown != tc.readKnown {
+			t.Fatalf("raw=%s usage=%+v", tc.raw, u)
+		}
+	}
+}
+
 func TestResolveUsageOpenAICompatibleCachedTokens(t *testing.T) {
 	usage := resolveUsage([]byte(`{
 		"usage": {

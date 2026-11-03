@@ -1,5 +1,7 @@
 # 规则、背景与知识读取
 
+> 2026-11-03 迁移说明：下文的文件 MCP 专用知识采集与安装步骤属于历史方案；活动探针和示例已移除。通用 MCP 保留，原生知识入口尚待实现。当前状态见[知识回归入口](../retests/knowledge-access/README.md)。
+
 [返回知识库索引](README.md)。本文件说明原生能力和已有验证，审查功能如何使用这些能力见[功能 Spec](../../.scratch/review-report/spec.md)。源码基准为 `578e647`，CLI 和 MCP 的实测范围分别标明。
 
 ## 规则加载
@@ -18,7 +20,7 @@
 }
 ```
 
-正文示例见 [XR 规则文件](../examples/xr-review-rule.json)。文件引用由 [规则解析器](../../internal/config/rules/system_rules.go) 处理：
+正文示例见 XR 规则文件（历史示例，已移除）。文件引用由 [规则解析器](../../internal/config/rules/system_rules.go) 处理：
 
 - 支持 `.md`、`.txt`、`.markdown`；只有单行、无空格、扩展名匹配的字符串被识别为路径。引用路径含空格时不能照此方式使用；这不等于 CLI 的 `--rule` 参数路径不允许空格。
 - `--rule` 和全局规则中的相对引用以 JSON 所在目录解析；仓库规则以仓库根目录解析，并限制实际路径不能逃出仓库。外部自定义规则可使用绝对 Markdown 路径。

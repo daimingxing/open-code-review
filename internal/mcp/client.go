@@ -169,6 +169,9 @@ func (c *Client) Tools() []*mcp.Tool { return c.tools }
 
 // CallTool invokes a tool on the MCP server and returns the text result.
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
+	if feedback := c.validateArguments(name, args); feedback != "" {
+		return "", &argumentError{feedback: feedback}
+	}
 	params := &mcp.CallToolParams{
 		Name:      name,
 		Arguments: args,

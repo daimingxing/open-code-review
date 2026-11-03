@@ -125,6 +125,9 @@ func validateReviewOptions(opts *reviewOptions) error {
 	if err := validateDiffMode(opts.from, opts.to, opts.commit); err != nil {
 		return err
 	}
+	if opts.preview && opts.reportEnabled {
+		return fmt.Errorf("--preview and --report cannot be used together")
+	}
 	if opts.preview && opts.resume != "" {
 		return fmt.Errorf("--preview and --resume cannot be used together")
 	}
@@ -209,6 +212,8 @@ func registerReviewFlags(cmd *cobra.Command, opts *reviewOptions) {
 	addExcludeFlag(cmd, &opts.excludes)
 	addOutputFlags(cmd, &opts.outputFormat, &opts.audience)
 	addOutputPathFlag(cmd, &opts.outputPath)
+	cmd.Flags().StringVar(&opts.reportPath, "report", "", "write versioned report material JSON (omit the path to save under the repository root)")
+	cmd.Flags().Lookup("report").NoOptDefVal = bareReportValue
 	addConcurrencyFlags(cmd, &opts.concurrency, &opts.concurrentTaskTimeout, &opts.maxTools, &opts.maxGitProcs, &opts.maxTokens, &opts.maxTokensBudget)
 	addBackgroundFlags(cmd, &opts.background, &opts.backgroundFile)
 	addProviderFlag(cmd, &opts.provider)

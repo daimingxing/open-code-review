@@ -1,0 +1,180 @@
+{
+  "schema_version": "1",
+  "review": {
+    "run_id": "manual-demo-20261006",
+    "started_at": "2026-10-06T10:00:00+08:00",
+    "completed_at": "2026-10-06T10:00:02+08:00",
+    "elapsed_ms": 2000,
+    "status": "complete",
+    "provider": "synthetic",
+    "model": "synthetic-fixture"
+  },
+  "repository": {
+    "name": "demo-order-service（合成示例）",
+    "identity": {
+      "status": "not_collected",
+      "reason": "合成样例不关联真实仓库身份"
+    }
+  },
+  "scope": {
+    "mode": "commit",
+    "requested_head": "HEAD",
+    "resolved_base": {
+      "status": "provided",
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "resolved_head": {
+      "status": "provided",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "exact_range": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_artifact": {
+      "status": "not_applicable",
+      "reason": "提交模式不使用工作区快照"
+    }
+  },
+  "findings": [
+    {
+      "id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "path": "internal/discount/apply.go",
+      "start_line": 42,
+      "end_line": 43,
+      "severity": "high",
+      "severity_status": "provided",
+      "category": "bug",
+      "category_status": "provided",
+      "source_content": "if amount > balance { return nil }\nbalance -= amount",
+      "display": {
+        "summary_zh": "折扣金额未校验，可能增加账户余额",
+        "severity_zh": "高",
+        "category_zh": "缺陷"
+      },
+      "evidence": {
+        "status": "provided",
+        "code": "balance -= amount"
+      },
+      "recommendation": {
+        "status": "provided",
+        "code": "拒绝负数金额，并在扣减前检查余额"
+      }
+    },
+    {
+      "id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "path": "internal/notify/send.go",
+      "start_line": 87,
+      "end_line": 87,
+      "severity": "medium",
+      "severity_status": "provided",
+      "category": "bug",
+      "category_status": "provided",
+      "source_content": "if err := client.Send(ctx, message); err != nil { return nil }",
+      "display": {
+        "summary_zh": "通知发送失败时被当作成功返回",
+        "severity_zh": "中",
+        "category_zh": "缺陷"
+      },
+      "evidence": {
+        "status": "provided",
+        "code": "return nil"
+      },
+      "recommendation": {
+        "status": "provided",
+        "code": "向调用方返回发送错误，或明确记录可恢复失败"
+      }
+    },
+    {
+      "id": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "path": "internal/worker/poll.go",
+      "start_line": 19,
+      "end_line": 23,
+      "severity": "low",
+      "severity_status": "provided",
+      "category": "bug",
+      "category_status": "provided",
+      "source_content": "for {\n    pollQueue()\n}",
+      "display": {
+        "summary_zh": "轮询循环没有检查取消信号",
+        "severity_zh": "低",
+        "category_zh": "缺陷"
+      },
+      "evidence": {
+        "status": "provided",
+        "code": "for { pollQueue() }"
+      },
+      "recommendation": {
+        "status": "provided",
+        "code": "在循环中检查 context 取消状态"
+      }
+    }
+  ],
+  "coverage": {
+    "selected": [],
+    "completed": [],
+    "reused": [],
+    "failed": [],
+    "waived": []
+  },
+  "sections": {
+    "git_statistics": {
+      "status": "provided",
+      "data": {
+        "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_count": 1,
+        "final_diff": {
+          "path_changes": 3,
+          "insertions": 42,
+          "deletions": 9
+        },
+        "statistics_explanation": "合成示例统计，仅用于展示报告内容"
+      }
+    },
+    "workspace_snapshot": {
+      "status": "not_applicable",
+      "reason": "本示例使用提交范围，不含工作区快照"
+    },
+    "achievements": {
+      "status": "provided",
+      "data": {
+        "summary_zh": "补充折扣边界校验、通知错误处理和后台任务取消检查",
+        "basis": "合成示例提交说明"
+      }
+    },
+    "people": {
+      "status": "provided",
+      "data": {
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject": "完善订单处理边界",
+        "author": {
+          "name": "示例作者",
+          "email": "author@example.invalid"
+        },
+        "committer": {
+          "name": "示例提交者",
+          "email": "committer@example.invalid"
+        },
+        "basis": "合成示例提交元数据"
+      }
+    },
+    "knowledge_sources": {
+      "status": "not_collected",
+      "reason": "合成样例不包含真实知识服务调用"
+    },
+    "structural_checks": {
+      "status": "provided",
+      "data": {
+        "check_count": 4,
+        "passed": 4,
+        "failed": 0,
+        "summary_zh": "合成示例结构检查均通过"
+      }
+    }
+  },
+  "limitations": [
+    {
+      "source": "knowledge_sources",
+      "status": "not_collected",
+      "reason": "样例不关联真实知识库，不能用于判断授权读取或知识应用效果"
+    }
+  ]
+}
