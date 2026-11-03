@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alibaba/open-code-review/internal/knowledge"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/model"
 )
@@ -39,6 +40,7 @@ const (
 // SessionHistory is the top-level container for an entire CR run.
 // It is safe for concurrent use by multiple goroutines.
 type SessionHistory struct {
+	Knowledge    *knowledge.Base
 	mu           sync.Mutex
 	SessionID    string
 	RepoDir      string
@@ -131,6 +133,7 @@ type ToolResultRecord struct {
 
 // SessionOptions holds optional metadata for a new session.
 type SessionOptions struct {
+	Knowledge   *knowledge.Base
 	ReviewMode  string
 	DiffFrom    string
 	DiffTo      string
@@ -158,6 +161,7 @@ type ResumeInfo struct {
 func New(repoDir, gitBranch, model string, opts SessionOptions) *SessionHistory {
 	sessionID := generateUUID()
 	sh := &SessionHistory{
+		Knowledge:    opts.Knowledge,
 		SessionID:    sessionID,
 		RepoDir:      repoDir,
 		GitBranch:    gitBranch,
@@ -358,6 +362,13 @@ func (sh *SessionHistory) Finalize() error {
 		// result is cached in finalizeErr. sync.Once guarantees every other
 		// caller blocks until this completes, then reads the same finalizeErr.
 		if p != nil {
+			if sh.Knowledge != nil {
+				p.mu.Lock()
+				uuid := generateUUID()
+				p.writeRecordLocked(map[string]any{"uuid": uuid, "parentUuid": p.lastUUID, "sessionId": sh.SessionID, "timestamp": time.Now().Format(time.RFC3339Nano), "type": "knowledge_sources", "knowledge_root": sh.Knowledge.Root, "knowledge_accesses": sh.Knowledge.Snapshot()})
+				p.lastUUID = uuid
+				p.mu.Unlock()
+			}
 			sh.finalizeErr = p.WriteSessionEnd(duration, filesReviewed, failures, manifest)
 		}
 	})

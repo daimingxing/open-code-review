@@ -125,6 +125,10 @@
           "use_perl_regexp": {
             "type": "boolean",
             "description": "If true, treats search_text as a Perl-compatible regular expression pattern instead of literal text. Defaults to false."
+          },
+          "directory": {
+            "type": "string",
+            "description": "Optional absolute directory within the configured knowledge_bases. Knowledge files are searched on disk, including ignored/untracked files. Omit for code in the reviewed Git version. Knowledge patterns support glob, directory prefixes and :(exclude)."
           }
         },
         "required": [
@@ -139,13 +143,13 @@
     "main_task": true,
     "definition": {
       "name": "file_read",
-      "description": "Use this tool to read file content when you need to get context for git diff. You can specify start_line and end_line to view specific parts of the file.\n\n**Line Range Strategy:**\n- Git diff hunk header provides guidance on how to get more relevant context.\n- Git diff hunk header \"@@-x,y +m,n@@\" indicates that the old file has y lines starting from line x, and the new file has n lines starting from line m.\n- For example, when you need to read 50 lines above and below the current changed code block in the new file, set start_line = m - 50, end_line = m + n + 50.\n\n**Example output:**\nFile: path/to/example.go (Total lines: 50)\nIS_TRUNCATED: false\nLINE_RANGE: 10-12\n// The following is the original content of the file\nfunc main() {\n  fmt.Println(\"Hello, World!\")\n}\n\n**Limitations:**\n- If the specified range exceeds 500 lines, only 500 lines will be returned with a truncation notice.\n- This tool can only read file content from the modified version (after changes) in git diff.",
+      "description": "Use this tool to read file content when you need to get context for git diff. You can specify start_line and end_line to view specific parts of the file.\n\n**Line Range Strategy:**\n- Git diff hunk header provides guidance on how to get more relevant context.\n- Git diff hunk header \"@@-x,y +m,n@@\" indicates that the old file has y lines starting from line x, and the new file has n lines starting from line m.\n- For example, when you need to read 50 lines above and below the current changed code block in the new file, set start_line = m - 50, end_line = m + n + 50.\n\n**Example output:**\nFile: path/to/example.go (Total lines: 50)\nIS_TRUNCATED: false\nLINE_RANGE: 10-12\n// The following is the original content of the file\nfunc main() {\n  fmt.Println(\"Hello, World!\")\n}\n\n**Limitations:**\n- If the specified range exceeds 500 lines, only 500 lines will be returned with a truncation notice.\n- Code reads the modified version in git diff; authorized knowledge reads disk files.",
       "parameters": {
         "type": "object",
         "properties": {
           "file_path": {
             "type": "string",
-            "description": "The relative path of the file to open."
+            "description": "Repository-relative source path, or an absolute path inside the configured knowledge_bases directory. Knowledge reads disk files; code reads the reviewed version."
           },
           "start_line": {
             "type": "integer",
@@ -203,6 +207,10 @@
           "case_sensitive": {
             "type": "boolean",
             "description": "Whether to perform case-sensitive search. Defaults to false."
+          },
+          "directory": {
+            "type": "string",
+            "description": "Optional absolute directory within the configured knowledge_bases. Knowledge files are searched on disk, including ignored/untracked files. Omit for code in the reviewed Git version. Knowledge patterns support glob, directory prefixes and :(exclude)."
           }
         },
         "required": [

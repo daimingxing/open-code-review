@@ -4,6 +4,8 @@
 package agent
 
 import (
+	"path/filepath"
+
 	allowedext "github.com/alibaba/open-code-review/internal/config/allowlist"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/llmloop"
@@ -68,6 +70,9 @@ func (a *Agent) selectFiles(diffs []model.Diff) []fileDecision {
 // survives all of them. It answers only what the path and the diff header say;
 // the size gate lives in selectFiles because it needs the resolved token limit.
 func (a *Agent) whyExcluded(d model.Diff) ExcludeReason {
+	if a.args.Knowledge != nil && a.args.Knowledge.Contains(filepath.Join(a.args.RepoDir, effectivePath(d))) {
+		return ExcludeUserRule
+	}
 	if d.IsBinary {
 		return ExcludeBinary
 	}

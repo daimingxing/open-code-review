@@ -13,22 +13,25 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/alibaba/open-code-review/internal/knowledge"
 	"github.com/alibaba/open-code-review/internal/model"
 )
 
 // ResumeState is the replayed, read-only checkpoint index for one prior session.
 type ResumeState struct {
-	SessionID        string
-	RepoDir          string
-	GitBranch        string
-	Model            string
-	ReviewMode       string
-	DiffFrom         string
-	DiffTo           string
-	DiffCommit       string
-	ScanPaths        []string
-	HasScanPathScope bool
-	Items            map[string]ResumeItem
+	KnowledgeRoot     string
+	KnowledgeAccesses []knowledge.Access
+	SessionID         string
+	RepoDir           string
+	GitBranch         string
+	Model             string
+	ReviewMode        string
+	DiffFrom          string
+	DiffTo            string
+	DiffCommit        string
+	ScanPaths         []string
+	HasScanPathScope  bool
+	Items             map[string]ResumeItem
 
 	// Manifest is the parent run's coverage snapshot, carried only by the
 	// session_end record. A nil Manifest means the parent's input identity cannot
@@ -57,24 +60,26 @@ type ResumeItem struct {
 }
 
 type resumeRecord struct {
-	Type            string             `json:"type"`
-	SessionID       string             `json:"sessionId"`
-	Cwd             string             `json:"cwd"`
-	GitBranch       string             `json:"gitBranch"`
-	Model           string             `json:"model"`
-	ReviewMode      string             `json:"reviewMode"`
-	DiffFrom        string             `json:"diffFrom"`
-	DiffTo          string             `json:"diffTo"`
-	DiffCommit      string             `json:"diffCommit"`
-	ScanPaths       *[]string          `json:"scanPaths"`
-	FilePath        string             `json:"filePath"`
-	OldPath         string             `json:"oldPath"`
-	NewPath         string             `json:"newPath"`
-	Fingerprint     string             `json:"fingerprint"`
-	SourceSessionID string             `json:"sourceSessionId"`
-	Error           string             `json:"error"`
-	Comments        []model.LlmComment `json:"comments"`
-	RunManifest     *RunManifest       `json:"run_manifest"`
+	KnowledgeRoot     string             `json:"knowledge_root"`
+	KnowledgeAccesses []knowledge.Access `json:"knowledge_accesses"`
+	Type              string             `json:"type"`
+	SessionID         string             `json:"sessionId"`
+	Cwd               string             `json:"cwd"`
+	GitBranch         string             `json:"gitBranch"`
+	Model             string             `json:"model"`
+	ReviewMode        string             `json:"reviewMode"`
+	DiffFrom          string             `json:"diffFrom"`
+	DiffTo            string             `json:"diffTo"`
+	DiffCommit        string             `json:"diffCommit"`
+	ScanPaths         *[]string          `json:"scanPaths"`
+	FilePath          string             `json:"filePath"`
+	OldPath           string             `json:"oldPath"`
+	NewPath           string             `json:"newPath"`
+	Fingerprint       string             `json:"fingerprint"`
+	SourceSessionID   string             `json:"sourceSessionId"`
+	Error             string             `json:"error"`
+	Comments          []model.LlmComment `json:"comments"`
+	RunManifest       *RunManifest       `json:"run_manifest"`
 }
 
 // SessionFilePath returns the JSONL path for a persisted session.
@@ -158,6 +163,8 @@ func (s *ResumeState) applyResumeLine(line []byte) error {
 	}
 
 	switch rec.Type {
+	case "knowledge_sources":
+		s.KnowledgeRoot, s.KnowledgeAccesses = rec.KnowledgeRoot, rec.KnowledgeAccesses
 	case "session_start":
 		s.applySessionStart(rec)
 	case "review_item_done", "review_item_reused":

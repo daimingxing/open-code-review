@@ -205,6 +205,7 @@ func validateDelegateOptions(opts *delegateOptions) error {
 
 // registerReviewFlags registers all review command flags on cmd, binding to opts.
 func registerReviewFlags(cmd *cobra.Command, opts *reviewOptions) {
+	cmd.Flags().StringVar(&opts.knowledgeDir, "knowledge-dir", "", "read-only reference knowledge directory (disk files, not review targets)")
 	addToolsFlag(cmd, &opts.toolConfigPath)
 	addRuleFlag(cmd, &opts.rulePath)
 	addRepoFlag(cmd, &opts.repoDir)

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -27,6 +28,7 @@ import (
 	"github.com/alibaba/open-code-review/internal/config/toolsconfig"
 	"github.com/alibaba/open-code-review/internal/diff"
 	"github.com/alibaba/open-code-review/internal/gitcmd"
+	"github.com/alibaba/open-code-review/internal/knowledge"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/model"
@@ -113,6 +115,7 @@ type Args struct {
 	// Background is an optional requirement/business context string
 	// injected into plan and main_task prompts via {{requirement_background}}.
 	Background string
+	Knowledge  *knowledge.Base
 
 	// Model is the resolved model name used by every LLM request this run
 	// makes. The template carries no per-phase model override, so plan,
@@ -229,6 +232,7 @@ func New(args Args) *Agent {
 			ResumedFrom: resumedFromSession(args.Resume),
 			Operation:   session.OperationReview,
 			LLMSource:   args.EndpointSource,
+			Knowledge:   args.Knowledge,
 		})
 	}
 	a := &Agent{
@@ -615,6 +619,9 @@ func (a *Agent) injectDiffMap() {
 	m := make(map[string]string, len(a.diffs))
 	for i := range a.diffs {
 		d := &a.diffs[i]
+		if a.args.Knowledge != nil && a.args.Knowledge.Contains(filepath.Join(a.args.RepoDir, effectivePath(*d))) {
+			continue
+		}
 		m[effectivePath(*d)] = d.Diff
 	}
 	dm := tool.NewDiffMap(m)
@@ -1317,7 +1324,7 @@ func (a *Agent) buildMainTaskMessages(rule, changeFiles, diffs, planResult, conf
 			content = stripEmptyConfirmedBlock(content)
 		}
 		content = strings.ReplaceAll(content, "{{confirmed_comments}}", confirmed)
-		messages = append(messages, llm.NewTextMessage(m.Role, content))
+		messages = append(messages, llm.NewTextMessage(m.Role, a.knowledgePrompt(m.Role, content)))
 	}
 	return messages
 }
@@ -1753,7 +1760,7 @@ func (a *Agent) executeGroupPlanPhase(ctx context.Context, g FileGroup, concaten
 		content = strings.ReplaceAll(content, "{{diffs}}", concatenatedDiffs)
 		content = strings.ReplaceAll(content, "{{requirement_background}}", a.args.Background)
 		content = strings.ReplaceAll(content, "{{plan_tools}}", formatToolDefs(a.args.PlanToolDefs))
-		messages = append(messages, llm.NewTextMessage(m.Role, content))
+		messages = append(messages, llm.NewTextMessage(m.Role, a.knowledgePrompt(m.Role, content)))
 	}
 
 	gk := fileGroupKey(g.Diffs)

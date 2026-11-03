@@ -40,7 +40,7 @@
 
 2026-11-03：知识库改为由用户显式指定目录，通过 OCR 原生读取、查找和搜索工具按需查阅。知识资料独立于目标代码的 Git 版本，目录授权与资料用途分别处理；具体契约见[原生知识库 Spec](../.scratch/native-knowledge/spec.md)。
 
-原先随产品携带文件 MCP 服务的设想已被替代，不再作为开发方向。文件 MCP 专用知识采集已清理，通用 MCP 集成继续保留；新的原生知识入口尚未实现，当前报告明确标记知识来源未采集。
+原先随产品携带文件 MCP 服务的设想已被替代，不再作为开发方向。文件 MCP 专用知识采集已清理，通用 MCP 集成继续保留；原生知识目录通过已有工具按需查阅，来源记录进入会话及报告材料。实际功能验证与限制由对应复测记录维护。
 
 ## 文档职责
 
@@ -65,6 +65,6 @@
 | 功能 | 需求与实施 | 相关架构决策 |
 |---|---|---|
 | 外部知识驱动审查与多仓库 HTML 报告 | [Spec](../.scratch/review-report/spec.md) · [工单索引](../.scratch/review-report/README.md) | [审查与报告分离](adr/0001-separate-review-and-report.md) · [外部知识按需读取](adr/0002-external-knowledge-access.md) · [模型生成 HTML](adr/0003-model-generated-html.md) |
-| 原生工具访问外部知识库（计划） | [Spec](../.scratch/native-knowledge/spec.md)；旧知识接入已清理，原生工具支持待开发 | [外部知识按需读取](adr/0002-external-knowledge-access.md)已标明原方案迁移状态 |
+| 原生工具访问外部知识库 | [Spec](../.scratch/native-knowledge/spec.md) · [01 原生知识审查](../.scratch/native-knowledge/issues/01-native-knowledge-review.md) → [02 报告材料与功能验收](../.scratch/native-knowledge/issues/02-knowledge-report-material.md)；功能及来源记录已实现，[复测](retests/knowledge-access/README.md)保留实际验证限制 | [外部知识按需读取](adr/0002-external-knowledge-access.md) |
 
 新增功能在此登记入口，其具体需求不展开到本文件。

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/alibaba/open-code-review/internal/gitcmd"
+	"github.com/alibaba/open-code-review/internal/knowledge"
 	"github.com/alibaba/open-code-review/internal/pathutil"
 )
 
@@ -60,8 +61,9 @@ type FileReader struct {
 	Mode    ReviewMode
 	// Ref is the git ref to use for ModeRange (--to) or ModeCommit (--commit).
 	// Empty for ModeWorkspace.
-	Ref    string
-	Runner *gitcmd.Runner
+	Ref       string
+	Runner    *gitcmd.Runner
+	Knowledge *knowledge.Base
 }
 
 // Read returns the full content of a file path (relative to RepoDir),
@@ -69,6 +71,19 @@ type FileReader struct {
 // - Workspace: reads directly from the filesystem.
 // - Range / Commit: uses `git show <Ref>:<path>` to read at the given ref.
 func (fr *FileReader) Read(ctx context.Context, path string) (string, error) {
+	abs, rel, err := fr.contentPath(path)
+	if err != nil {
+		return "", err
+	}
+	if fr.Knowledge.Contains(abs) {
+		resolved, err := fr.Knowledge.Resolve(abs)
+		if err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(resolved)
+		return string(data), err
+	}
+	path = rel
 	switch fr.Mode {
 	case ModeWorkspace:
 		return fr.readFromDisk(path)
@@ -139,7 +154,20 @@ func (fr *FileReader) readFromGitShow(parentCtx context.Context, path string) (s
 
 // ReadLines returns a window of lines from the file plus the total line count.
 // startLine is 1-based; maxLines is the maximum number of lines to collect.
-func (fr *FileReader) ReadLines(ctx context.Context, path string, startLine, maxLines int) ([]string, int, error) {
+// requestedEnd 用于区分显式局部读取与返回上限截断；零表示读至文件末尾。 // allow-non-english: user requires Chinese code comments
+func (fr *FileReader) ReadLines(ctx context.Context, path string, startLine, maxLines int, requestedEnd ...int) ([]string, int, error) {
+	abs, rel, err := fr.contentPath(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if fr.Knowledge.Contains(abs) {
+		end := 0
+		if len(requestedEnd) > 0 {
+			end = requestedEnd[0]
+		}
+		return fr.readKnowledgeLines(abs, startLine, maxLines, end)
+	}
+	path = rel
 	switch fr.Mode {
 	case ModeWorkspace:
 		return fr.readLinesFromDisk(path, startLine, maxLines)
