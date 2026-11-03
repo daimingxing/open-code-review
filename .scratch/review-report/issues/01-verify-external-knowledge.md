@@ -51,4 +51,3 @@ Blocked by: 无，可立即开始
 - 后端：exit 0，native `complete`，13 次工具调用、失败 0；4 次完整知识读取，包含服务调用章节和后端索引。模型在 `EiInfoCallUtil.java:14` 依据“01 本地服务调用(XLocalManager)”明确指出 `< 0` 与仅等于 `STATUS_FAILURE` 的差异，生成 3 条 finding。
 - 两份材料均保存 `knowledge_sources.status=observed`、`knowledge_version_status=observed`、`application_status=not_observed`。程序只证明正文读取及摘要；知识应用结论由实际 finding、引用章节和完整 MCP 读取记录交叉确认。结果及摘要位于[归档复测记录](../../../project-docs/retests/archive/review-report-2026-10/knowledge-access.md)，私有 JSON 保存在受 ACL 保护的临时目录，未提交。
 - 一次更早复跑只读到前端索引，未达到指定章节证据门槛，明确不计为通过；前端测试规则现要求分析前读取指定索引/API/版本章节。最终脚本运行满足完整读取要求。仓库规则和脚本的 PowerShell 语法、`english-check` 均通过；报告工单及源代码回归见最终集成记录。
-

@@ -32,4 +32,3 @@ Blocked by: [08：多份报告材料汇总为一份 HTML](08-multi-input-html-re
 - CLI 全包 `go test ./internal/report ./cmd/opencodereview -count=1 -timeout=180s` 中 `internal/report` 通过，CLI 包达到 180 秒包级测试上限。`go test -json ./cmd/opencodereview -count=1 -timeout=45s` 最后停留于既有 `TestReviewE2E_JSONHumanStreamsProgressToStderr`，堆栈落于 `retryTestGit` 的 `exec.Cmd.CombinedOutput`；此测试在 e66 基线已存在，单独运行通过（6.365s）。未确认全包超时根因，不修改无关 E2E。详情见[历史复测记录](../../../project-docs/retests/archive/review-report-2026-10/html-report-experience.md)。
 - 最终集成分支 `feature-review-report` 的 `fc799ad` 合并统计语义校验修复，`a905b4a` 更新复测记录；全量 Go 回归和最终独立审查的记录见[归档验收记录](../../../project-docs/retests/archive/review-report-2026-10/html-report-experience.md)。
 - 运行命令、预算限制、实际结果、浏览器脚本与隔离真实模型复测前提见[归档复测记录](../../../project-docs/retests/archive/review-report-2026-10/html-report-experience.md)，当前回归入口见[HTML 复测目录](../../../project-docs/retests/html-report/README.md)和[开发复测索引](../../../project-docs/retests/README.md)。
-

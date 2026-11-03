@@ -28,4 +28,3 @@ Blocked by: [03：分支比较生成准确范围的报告材料](03-branch-repor
 - 已按 Merge 约定集成至 `feature-review-report`，Merge 提交 `5de6fb8`。目标分支重跑 `go test ./internal/report -run 'TestWriteMaterial' -count=1`（10 项，1.744 秒）及完整 06 CLI E2E 矩阵（26 项，90.047 秒），均退出码 0；`git diff --check` 通过。工单 07 的前置门已满足。
 
 ## Comments
-

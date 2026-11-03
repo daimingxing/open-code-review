@@ -173,41 +173,58 @@ func TestReportCommandAgentLoopReadsMaterialsWritesHTMLAndFinishes(t *testing.T)
 }
 
 func TestReportCommandDoesNotPublishWhenLoopStopsEarly(t *testing.T) {
-	setTestHome(t, t.TempDir())
-	material := reportTestMaterial(false)
-	input := writeReportInput(t, material)
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) == 1 {
-			writeReportToolCalls(w, 10, 10, reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}))
-			return
-		}
-		writeReportToolCalls(w, 5, 5, reportToolCall("d", "task_done", map[string]any{"state": "DONE"}))
-	}))
-	defer server.Close()
-	configureReportLLM(t, server.URL)
-	tpl, err := template.LoadDefault()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tpl.MaxToolRequestTimes = 1
-	out := filepath.Join(t.TempDir(), "early-stop.html")
-	cmd := newReportCommand()
-	cmd.SetContext(context.Background())
-	var stderr bytes.Buffer
-	cmd.SetErr(&stderr)
-	err = runHTMLReport(cmd, reportOptions{
-		inputs:       []string{input},
-		template:     report.DefaultHTMLTemplate,
-		output:       out,
-		outputSet:    true,
-		loopTemplate: tpl,
-	})
-	if err == nil || !strings.Contains(err.Error(), "maximum tool-request rounds") {
-		t.Fatalf("early-stop error = %v stderr=%s", err, stderr.String())
-	}
-	if _, err := os.Stat(out); !os.IsNotExist(err) {
-		t.Fatalf("early stop published HTML: %v", err)
+	for _, completes := range []bool{false, true} {
+		t.Run(fmt.Sprintf("grace_completes_%t", completes), func(t *testing.T) {
+			setTestHome(t, t.TempDir())
+			material := reportTestMaterial(false)
+			input := writeReportInput(t, material)
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) == 1 {
+					writeReportToolCalls(w, 10, 10, reportToolCall("w", "write_html", map[string]any{"html": reportHTMLFixture(material)}))
+					return
+				}
+				if completes {
+					writeReportToolCalls(w, 5, 5, reportToolCall("d", "task_done", map[string]any{"state": "DONE"}))
+				} else {
+					writeReportToolCalls(w, 5, 5)
+				}
+			}))
+			defer server.Close()
+			configureReportLLM(t, server.URL)
+			tpl, err := template.LoadDefault()
+			if err != nil {
+				t.Fatal(err)
+			}
+			tpl.MaxToolRequestTimes = 1
+			out := filepath.Join(t.TempDir(), "early-stop.html")
+			cmd := newReportCommand()
+			cmd.SetContext(context.Background())
+			var stderr bytes.Buffer
+			cmd.SetErr(&stderr)
+			err = runHTMLReport(cmd, reportOptions{
+				inputs:       []string{input},
+				template:     report.DefaultHTMLTemplate,
+				output:       out,
+				outputSet:    true,
+				loopTemplate: tpl,
+			})
+			if completes {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(out); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "maximum tool-request rounds") {
+				t.Fatalf("early-stop error = %v stderr=%s", err, stderr.String())
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Fatalf("early stop published HTML: %v", err)
+			}
+		})
 	}
 }
 

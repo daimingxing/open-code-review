@@ -30,4 +30,3 @@
 - 报告 JSON 输入校验、提示词素材引导及文件防覆盖随可用路径交付；不增加源码路径权限拦截。HTML 内容和脚本检查不属于首轮验收，后续根据真实生成结果迭代。
 - 自动验收从 CLI 观察参数、退出状态、stdout/stderr 和文件内容，使用临时仓库、隔离配置及可控模型；知识实际应用必须另有真实模型证据。执行仓库已有的必要检查，不按私有实现结构或固定模型措辞断言。
 - 按[术语表](../../GLOSSARY.md)命名；涉及架构边界时读取[审查与报告分离](../../project-docs/adr/0001-separate-review-and-report.md)、[外部知识读取](../../project-docs/adr/0002-external-knowledge-access.md)、[模型生成 HTML](../../project-docs/adr/0003-model-generated-html.md)。实现遵循[项目级设计原则](../../project-docs/project-design.md)。
-
