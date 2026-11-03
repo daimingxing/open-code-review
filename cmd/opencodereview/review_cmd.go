@@ -16,6 +16,7 @@ import (
 
 	"github.com/alibaba/open-code-review/internal/agent"
 	"github.com/alibaba/open-code-review/internal/diff"
+	"github.com/alibaba/open-code-review/internal/knowledge"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/mcp"
 	"github.com/alibaba/open-code-review/internal/report"
@@ -43,6 +44,8 @@ type reviewOptions struct {
 	reportPath            string
 	background            string
 	backgroundFile        string
+	knowledgeDir          string
+	knowledgeBase         *knowledge.Base
 	provider              string
 	model                 string
 	concurrency           int
@@ -121,6 +124,11 @@ func init() {
 }
 
 func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error) {
+	base, err := knowledge.Open(opts.knowledgeDir)
+	if err != nil {
+		return err
+	}
+	opts.knowledgeBase = base
 	if opts.reportEnabled && opts.reportPath != "" {
 		// 必须在原生输出文件打开前检查，避免重合路径截断已有文件。 // allow-non-english: explains output path check ordering
 		conflict, err := report.PathsConflict(opts.outputPath, opts.reportPath)
@@ -219,10 +227,11 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 
 	mode := tool.ParseReviewMode(opts.from, opts.to, opts.commit)
 	fileReader := &tool.FileReader{
-		RepoDir: cc.RepoDir,
-		Mode:    mode,
-		Ref:     fileReadRef(mode, opts, sealedInput),
-		Runner:  cc.GitRunner,
+		RepoDir:   cc.RepoDir,
+		Mode:      mode,
+		Ref:       fileReadRef(mode, opts, sealedInput),
+		Runner:    cc.GitRunner,
+		Knowledge: base,
 	}
 	tools := buildToolRegistry(rt.Collector, fileReader)
 
@@ -254,6 +263,7 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 		Provider:              rt.Provider,
 		EndpointSource:        rt.Source,
 		Background:            opts.background,
+		Knowledge:             base,
 		GitRunner:             cc.GitRunner,
 		Resume:                resumeState,
 		SealedInput:           sealedInput,
@@ -356,6 +366,7 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	var materialErr error
 	if opts.reportEnabled {
 		materialOptions := reportMaterialOptions{
+			Knowledge:      base,
 			ProjectSummary: ag.ProjectSummary(),
 			LLMClient:      rt.Client,
 			ModelName:      rt.Model,
@@ -462,6 +473,9 @@ func validateResumeIdentity(ctx context.Context, cc *commonContext, opts reviewO
 	if state == nil {
 		return nil, nil
 	}
+	if err := opts.knowledgeBase.Restore(state.KnowledgeRoot, state.KnowledgeAccesses); err != nil {
+		return nil, err
+	}
 	sealed, err := agent.ResolveIdentity(ctx, agent.Args{
 		RepoDir:    cc.RepoDir,
 		From:       opts.from,
@@ -472,6 +486,7 @@ func validateResumeIdentity(ctx context.Context, cc *commonContext, opts reviewO
 		SystemRule: cc.Resolver,
 		FileFilter: cc.FileFilter,
 		GitRunner:  cc.GitRunner,
+		Knowledge:  opts.knowledgeBase,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolve current input identity: %w", err)
@@ -578,6 +593,7 @@ func runPreviewContext(ctx context.Context, cc *commonContext, opts reviewOption
 	tpl.MaxTokens = maxTokens
 
 	preview, err := agent.Preview(ctx, agent.Args{
+		Knowledge:  opts.knowledgeBase,
 		RepoDir:    cc.RepoDir,
 		From:       opts.from,
 		To:         opts.to,

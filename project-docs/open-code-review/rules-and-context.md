@@ -1,6 +1,6 @@
 # 规则、背景与知识读取
 
-> 2026-11-03 迁移说明：下文的文件 MCP 专用知识采集与安装步骤属于历史方案；活动探针和示例已移除。通用 MCP 保留，原生知识入口尚待实现。当前状态见[知识回归入口](../retests/knowledge-access/README.md)。
+> 2026-11-03 迁移说明：下文的文件 MCP 专用知识采集与安装步骤属于历史方案；活动探针和示例已移除。通用 MCP 保留，当前通过 `review --knowledge-dir` 授权原生工具查阅。验证范围见[知识回归入口](../retests/knowledge-access/README.md)。
 
 [返回知识库索引](README.md)。本文件说明原生能力和已有验证，审查功能如何使用这些能力见[功能 Spec](../../.scratch/review-report/spec.md)。源码基准为 `578e647`，CLI 和 MCP 的实测范围分别标明。
 
@@ -60,6 +60,7 @@ ocr review --repo "E:\代码仓库" --from main --to feature/example --backgroun
 | `--background-file` | 加载指定背景正文，不跟随链接 |
 | 工作区模式的 `file_read` | 从仓库内磁盘读取，防止符号链接逃逸 |
 | 分支/提交模式的 `file_read` | 从目标 Git 引用读取，磁盘存在不代表目标版本中存在 |
+| `review --knowledge-dir` 授权的原生工具 | 知识文件读取磁盘，包含忽略或未跟踪资料；仓库内知识文件不作为代码审查目标 |
 | 已配置的外部 MCP 工具 | 按对应服务权限读取外部资料，独立于代码 Git 范围 |
 | 规则里只提到路径或 URL | 仅为模型指引，不自动赋予读取权限或工具 |
 
@@ -67,9 +68,13 @@ ocr review --repo "E:\代码仓库" --from main --to feature/example --backgroun
 
 其他内置工具包括 `file_find`、`code_search`、`file_read_diff`、`code_comment` 和 `task_done`。它们支持上下文、差异、评论及任务完成，不提供任意本机文件访问，也不自动扩大可评论的代码范围。
 
+本项目的 `review --knowledge-dir` 仅支持一个显式目录，相对路径按命令调用目录解析。模型通过 `knowledge_bases` 任务区块获得实际目录；查找及搜索可传 `directory` 定向到知识目录或其中的子目录，读取使用返回路径及原有行号参数。知识搜索支持 glob、目录前缀和 `:(exclude)`，源码搜索保留原有 Git pathspec。知识权限不会从背景或规则推导，也不会自动打开文件 MCP；有效空目录允许使用，无效目录在模型调用前报错。背景文件的相对路径仍按目标仓库解析，跨仓库调用建议提供绝对路径。
+
+会话和报告材料记录实际访问、局部性、截断及失败；搜索记录匹配文件和行号，读取记录源文件标识，不将读取等同于正确应用。资料变化检查仅针对实际读取文件，不建立整个目录快照；恢复时配置或已读资料不兼容会拒绝复用。共享压缩继续保留任务初始知识区块，不增加知识专用阈值。功能验证及限制见[原生知识库复测](../retests/knowledge-access/README.md)。
+
 `--tools` 修改工具定义不等于实现新的工具执行行为。OCR 原生有 MCP 客户端；[initMCPClients](../../cmd/opencodereview/review_cmd.go) 接入服务，[RegisterAll](../../internal/mcp/provider.go) 注册工具，无须先扩展 rule 解析器。MCP 初始化失败会警告并继续审查，不能依赖规则提示实现程序级强制中断。
 
-## 已验证的文件 MCP 接入
+## 已验证的文件 MCP 接入（历史方案）
 
 外部服务 `@modelcontextprotocol/server-filesystem@2026.8.31` 以 Node.js 本地标准输入输出进程运行，由 OCR 启动和关闭，无须部署远程后台。服务本身支持读写；以下配置通过 OCR 非空工具白名单只注册读取类工具。路径为占位值，需按实际安装位置替换。
 

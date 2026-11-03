@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alibaba/open-code-review/internal/diff"
+	"github.com/alibaba/open-code-review/internal/knowledge"
 )
 
 const (
@@ -29,7 +30,7 @@ func NewFileFind(fr *FileReader) *FileFindProvider { return &FileFindProvider{Fi
 
 func (p *FileFindProvider) Tool() Tool { return FileFind }
 
-func (p *FileFindProvider) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (p *FileFindProvider) Execute(ctx context.Context, args map[string]any) (result string, retErr error) {
 	queryName, _ := args["query_name"].(string)
 	if strings.TrimSpace(queryName) == "" {
 		return "// The file was not found", nil
@@ -40,9 +41,52 @@ func (p *FileFindProvider) Execute(ctx context.Context, args map[string]any) (st
 	// (e.g. `pkg\util.go`) resolve identically on every platform.
 	query := strings.ReplaceAll(queryName, "\\", "/")
 
-	files, err := p.listGitFiles(ctx)
+	directory, err := p.FileReader.knowledgeDirectory(args)
 	if err != nil {
 		return "", err
+	}
+	var files []string
+	if directory == "" {
+		files, err = p.listGitFiles(ctx)
+	}
+	if err != nil {
+		return "", err
+	}
+	if p.FileReader.Knowledge != nil && directory == "" {
+		kept := files[:0]
+		for _, file := range files {
+			abs, _, err := p.FileReader.contentPath(file)
+			if err == nil && !p.FileReader.Knowledge.Contains(abs) {
+				kept = append(kept, file)
+			}
+		}
+		files = kept
+	}
+	if directory != "" {
+		ctx, cancel := context.WithTimeout(ctx, fileFindTimeout)
+		defer cancel()
+		knowledgeFiles, e := p.FileReader.Knowledge.Files(ctx, directory)
+		a := knowledge.Access{Operation: "file_find", Path: directory, Status: "listed", Query: queryName, Partial: true}
+		defer func() {
+			if retErr != nil {
+				a.Status, a.Reason = "failed", retErr.Error()
+			}
+			for _, path := range strings.Split(result, "\n") {
+				if p.FileReader.Knowledge.Contains(path) {
+					a.Paths = append(a.Paths, path)
+				}
+			}
+			p.FileReader.Knowledge.Record(a)
+		}()
+		if e != nil {
+			a.Status, a.Reason = "failed", e.Error()
+		}
+		if e != nil {
+			return "", e
+		}
+		for _, file := range knowledgeFiles {
+			files = append(files, filepath.ToSlash(file))
+		}
 	}
 
 	// Precompute the query comparison form once; the file list can be

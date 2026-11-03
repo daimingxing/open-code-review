@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ const (
 // CodeSearchProvider performs text search across the repository using git grep.
 type CodeSearchProvider struct {
 	FileReader *FileReader
+	diskFiles  bool
 }
 
 func NewCodeSearch(fr *FileReader) *CodeSearchProvider { return &CodeSearchProvider{FileReader: fr} }
@@ -49,6 +51,38 @@ func (p *CodeSearchProvider) Execute(ctx context.Context, args map[string]any) (
 		return "Error: search_text is blank", nil
 	}
 
+	directory, err := p.FileReader.knowledgeDirectory(args)
+	if err != nil {
+		return "", err
+	}
+	if directory == "" && p.FileReader.Knowledge != nil {
+		for _, pattern := range patterns {
+			abs, _, e := p.FileReader.contentPath(pattern)
+			if e == nil && p.FileReader.Knowledge.Contains(abs) {
+				directory = p.FileReader.Knowledge.Root
+				break
+			}
+		}
+		if directory != "" {
+			for i, pattern := range patterns {
+				if !strings.HasPrefix(pattern, ":") {
+					abs, _, e := p.FileReader.contentPath(pattern)
+					if e != nil {
+						return "", e
+					}
+					patterns[i] = abs
+				}
+			}
+		}
+	}
+	if directory != "" {
+		return p.searchKnowledge(ctx, directory, searchText, caseSensitive, usePerlRegexp, patterns)
+	}
+	if p.FileReader.Knowledge != nil {
+		if rel, err := filepath.Rel(p.FileReader.RepoDir, p.FileReader.Knowledge.Root); err == nil && !strings.HasPrefix(rel, "..") {
+			patterns = append(patterns, ":(exclude)"+filepath.ToSlash(rel)+"/**")
+		}
+	}
 	result, err := p.gitGrep(ctx, searchText, caseSensitive, usePerlRegexp, patterns)
 	if err != nil {
 		return "", err
@@ -61,7 +95,9 @@ func (p *CodeSearchProvider) buildGrepArgs(searchText string, caseSensitive bool
 	// quoted octal escapes, which file_read cannot open.
 	cmdArgs := []string{"--no-pager", "-c", "core.quotepath=false", "grep"}
 
-	if noIndex {
+	if p.diskFiles {
+		cmdArgs = append(cmdArgs, "--no-index", "--no-exclude-standard")
+	} else if noIndex {
 		// Non-git directory: search the working tree directly while still
 		// honoring .gitignore and skipping .git (via --exclude-standard).
 		cmdArgs = append(cmdArgs, "--no-index", "--exclude-standard")

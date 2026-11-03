@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/alibaba/open-code-review/internal/gitcmd"
+	"github.com/alibaba/open-code-review/internal/knowledge"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/model"
@@ -25,6 +26,7 @@ import (
 const bareReportValue = "\x00"
 
 type reportMaterialOptions struct {
+	Knowledge      *knowledge.Base
 	Snapshot       *workspaceSnapshotCapture
 	ProjectSummary string
 	LLMClient      llm.LLMClient
@@ -167,6 +169,9 @@ func buildReportMaterial(
 		}
 	}
 	achievements, people, knowledge := enrichReportSections(context.Background(), gitRunner, repoDir, scope, manifest, projectSummary, summaryClient, summaryModelName)
+	if len(options) > 0 {
+		knowledge = nativeKnowledgeSection(options[0].Knowledge)
+	}
 	sections := report.MaterialSections{
 		GitStatistics:     branchGitStatisticsSection(gitRunner, repoDir, scope),
 		WorkspaceSnapshot: workspaceSection,

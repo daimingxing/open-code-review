@@ -208,7 +208,7 @@ func TestCollectCommitMaterialUsesFirstParentForMergeCommit(t *testing.T) {
 	}
 }
 
-func TestKnowledgeSourcesUnavailableDuringMigration(t *testing.T) {
+func TestKnowledgeSourcesWithoutAccessEvidence(t *testing.T) {
 	section := knowledgeSourcesSection()
 	if section.Status != report.StatusNotCollected || len(section.Data) != 0 || section.Reason == "" {
 		t.Fatalf("migration must not claim knowledge was collected: %+v", section)

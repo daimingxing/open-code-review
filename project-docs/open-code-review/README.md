@@ -1,6 +1,6 @@
 # OpenCodeReview 知识库
 
-本知识库保存原生 OCR 的使用方式、实现边界与验证证据。项目级原则见[项目设计](../project-design.md)，二次开发的审查与报告行为见[功能 Spec](../../.scratch/review-report/spec.md)。`--report` 和 `ocr report` 已在本项目实现，属于二开能力；新的 `--knowledge-dir` 仍待开发，见[原生知识库 Spec](../../.scratch/native-knowledge/spec.md)。
+本知识库保存原生 OCR 的使用方式、实现边界与验证证据。项目级原则见[项目设计](../project-design.md)，审查与报告的历史规格见[原 Spec](../../.scratch/review-report/spec.md)。`--report`、`ocr report` 和 `review --knowledge-dir` 属于二开能力；当前知识接入契约见[原生知识库 Spec](../../.scratch/native-knowledge/spec.md)。
 
 ## 文档索引
 
@@ -43,7 +43,7 @@ OCR 是代码审查 CLI：获取 Git 差异、筛选文件、加载规则、调�
 | 2026-09-30 | 文件 MCP `2026.8.31`、原生 OCR、模型替身 | 外部索引及章节读取、工具白名单和目录外读取拒绝 |
 | 2026-11-03 | 本地 `dev` 集成提交 `0237abe` | 清理旧知识采集，合入官方 `main` 至 `b52b53b`；根模块普通回归、静态检查及构建结果见[同步记录](../retests/README.md#2026-11-03-上游同步) |
 
-上表按日期记录当时的验证范围，不表示旧文件 MCP 方案仍是当前知识入口。报告材料和 HTML 智能体生成已经实现，真实效果及限制见[报告验收入口](../mock/report/README.md)和[复测记录](../retests/README.md)。旧知识专用采集已移除，原生知识库入口及其真实模型效果尚待开发验证；原生会话 HTML 视觉效果仍未完整验收。在线主分支文档和 Skill 描述不能覆盖已验证版本的实际行为。
+上表按日期记录当时的验证范围，不表示旧文件 MCP 方案仍是当前知识入口。报告材料和 HTML 智能体生成已经实现，真实效果及限制见[报告验收入口](../mock/report/README.md)和[复测记录](../retests/README.md)。旧知识专用采集已移除，原生知识目录的功能验证见[知识访问复测](../retests/knowledge-access/README.md)，不代表审查质量或知识应用效果已验收；原生会话 HTML 视觉效果仍未完整验收。在线主分支文档和 Skill 描述不能覆盖已验证版本的实际行为。
 
 ## 执行与集成注意事项
 

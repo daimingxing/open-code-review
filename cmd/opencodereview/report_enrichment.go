@@ -388,5 +388,5 @@ func peopleSection(material commitMaterial) report.Section {
 }
 
 func knowledgeSourcesSection() report.Section {
-	return notCollectedSection("未观察到知识来源：旧文件 MCP 专用采集已移除，原生知识接入尚未实现") // allow-non-english: report explains the knowledge migration gap
+	return notCollectedSection("未观察到知识来源：未配置原生知识库，或调用方未提供知识访问事实") // allow-non-english: report explains absent knowledge evidence
 }
