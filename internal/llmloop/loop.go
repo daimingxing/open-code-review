@@ -105,6 +105,11 @@ type Runner struct {
 	totalOutputTokens     int64
 	totalCacheReadTokens  int64
 	totalCacheWriteTokens int64
+	usageResponses        int64
+	missingUsage          int64
+	incompleteUsage       int64
+	cacheReadReports      int64
+	cacheWriteReports     int64
 	warningsMu            sync.Mutex
 	warnings              []AgentWarning
 	toolCallsMu           sync.Mutex
@@ -256,13 +261,50 @@ func (r *Runner) recordToolFailure(number int64, name, taskKey, errMsg string,
 // in agent / future scan phases) that perform their own LLM calls outside
 // RunMainTask.
 func (r *Runner) RecordUsage(u *llm.UsageInfo) {
+	atomic.AddInt64(&r.usageResponses, 1)
 	if u == nil {
+		atomic.AddInt64(&r.missingUsage, 1)
 		return
+	}
+	if u.Incomplete {
+		atomic.AddInt64(&r.incompleteUsage, 1)
+	}
+	if u.CacheReadKnown || u.CacheReadTokens != 0 {
+		atomic.AddInt64(&r.cacheReadReports, 1)
+	}
+	if u.CacheWriteKnown || u.CacheWriteTokens != 0 {
+		atomic.AddInt64(&r.cacheWriteReports, 1)
 	}
 	atomic.AddInt64(&r.totalInputTokens, u.PromptTokens)
 	atomic.AddInt64(&r.totalOutputTokens, u.CompletionTokens)
 	atomic.AddInt64(&r.totalCacheReadTokens, u.CacheReadTokens)
 	atomic.AddInt64(&r.totalCacheWriteTokens, u.CacheWriteTokens)
+}
+
+func (r *Runner) UsageStatus() string {
+	count := atomic.LoadInt64(&r.usageResponses)
+	missing := atomic.LoadInt64(&r.missingUsage)
+	if count == 0 || missing == count {
+		return "unavailable"
+	}
+	if missing > 0 || atomic.LoadInt64(&r.incompleteUsage) > 0 {
+		return "partial"
+	}
+	return "reported"
+}
+
+func (r *Runner) CacheUsageStatus(write bool) string {
+	reports := atomic.LoadInt64(&r.cacheReadReports)
+	if write {
+		reports = atomic.LoadInt64(&r.cacheWriteReports)
+	}
+	if reports == 0 {
+		return "unavailable"
+	}
+	if reports < atomic.LoadInt64(&r.usageResponses) {
+		return "partial"
+	}
+	return "reported"
 }
 
 // CollectPendingComments awaits any async comment-processing workers and
@@ -445,11 +487,8 @@ func (r *Runner) RunMainTask(ctx context.Context, messages []llm.Message, taskKe
 		totalTokens := int64(0)
 		if resp.Usage != nil {
 			totalTokens = resp.Usage.TotalTokens
-			atomic.AddInt64(&r.totalInputTokens, resp.Usage.PromptTokens)
-			atomic.AddInt64(&r.totalOutputTokens, resp.Usage.CompletionTokens)
-			atomic.AddInt64(&r.totalCacheReadTokens, resp.Usage.CacheReadTokens)
-			atomic.AddInt64(&r.totalCacheWriteTokens, resp.Usage.CacheWriteTokens)
 		}
+		r.RecordUsage(resp.Usage)
 		telemetry.RecordLLMResult(llmSpan, duration, totalTokens, nil)
 		llmSpan.End()
 		telemetry.RecordLLMRequest(ctx, r.deps.Model, duration, totalTokens, "ok")
@@ -458,8 +497,8 @@ func (r *Runner) RunMainTask(ctx context.Context, messages []llm.Message, taskKe
 		calls := resp.ToolCalls()
 
 		if len(calls) == 0 {
-			fmt.Fprintf(stdout.Writer(), "[ocr] No tool calls parsed for %s, retrying...\n", taskKey)
-			messages = append(messages, llm.NewTextMessage("user", "You did not successfully call any tools. Please try again or use task_done if finished."))
+			fmt.Fprintf(stdout.Writer(), "[ocr] No tool calls returned for %s; continuing the conversation, awaiting tools or task_done.\n", taskKey)
+			messages = append(messages, llm.NewTextMessage("user", "Your response contained no tool calls. Continue with a tool call or use task_done if finished."))
 			native := resp.Native()
 			reasoning := resp.ReasoningContent()
 			if content != "" || native.Payload != nil || reasoning != "" {
@@ -504,6 +543,7 @@ func (r *Runner) RunMainTask(ctx context.Context, messages []llm.Message, taskKe
 		}
 
 		if taskCompleted {
+			fmt.Fprintf(stdout.Writer(), "[ocr] task_done: DONE (%s)\n", taskKey)
 			return true, StopNone, nil
 		}
 		if !hasValidResult {
@@ -605,11 +645,8 @@ func (r *Runner) runGraceRound(ctx context.Context, messages []llm.Message, task
 	totalTokens := int64(0)
 	if resp.Usage != nil {
 		totalTokens = resp.Usage.TotalTokens
-		atomic.AddInt64(&r.totalInputTokens, resp.Usage.PromptTokens)
-		atomic.AddInt64(&r.totalOutputTokens, resp.Usage.CompletionTokens)
-		atomic.AddInt64(&r.totalCacheReadTokens, resp.Usage.CacheReadTokens)
-		atomic.AddInt64(&r.totalCacheWriteTokens, resp.Usage.CacheWriteTokens)
 	}
+	r.RecordUsage(resp.Usage)
 	telemetry.RecordLLMResult(llmSpan, duration, totalTokens, nil)
 	llmSpan.End()
 	telemetry.RecordLLMRequest(ctx, r.deps.Model, duration, totalTokens, "ok")
@@ -702,7 +739,12 @@ func (r *Runner) executeToolCall(ctx context.Context, taskKey string, call llm.T
 	toolName := call.Function.Name
 	p, found := r.deps.Tools.Get(toolName)
 	if !found {
-		return r.toolFailureResult(taskKey, toolName, tool.NotAvailableMsg)
+		available := make([]string, 0, len(r.deps.MainToolDefs))
+		for _, def := range r.deps.MainToolDefs {
+			available = append(available, def.Function.Name)
+		}
+		sort.Strings(available)
+		return r.toolFailureResult(taskKey, toolName, fmt.Sprintf("%s Tool %q is unavailable. Available tools for this conversation: %v. No tool was executed.", tool.NotAvailableMsg, toolName, available))
 	}
 
 	toolCallNumber := r.recordToolCall(toolName)
@@ -802,12 +844,7 @@ func (r *Runner) executeToolCall(ctx context.Context, taskKey string, call llm.T
 							_, resp := diff.ReLocateComment(reqCtx, cm, d, r.deps.LLMClient, msgs, r.deps.Model, r.deps.Template.CompletionTokenLimit())
 							if resp != nil {
 								rlRec.SetResponse(resp, time.Since(rlStart))
-								if resp.Usage != nil {
-									atomic.AddInt64(&r.totalInputTokens, resp.Usage.PromptTokens)
-									atomic.AddInt64(&r.totalOutputTokens, resp.Usage.CompletionTokens)
-									atomic.AddInt64(&r.totalCacheReadTokens, resp.Usage.CacheReadTokens)
-									atomic.AddInt64(&r.totalCacheWriteTokens, resp.Usage.CacheWriteTokens)
-								}
+								r.RecordUsage(resp.Usage)
 							} else {
 								rlRec.SetError(fmt.Errorf("re-location LLM call failed"), time.Since(rlStart))
 							}

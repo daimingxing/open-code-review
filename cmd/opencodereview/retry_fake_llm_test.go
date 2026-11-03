@@ -45,6 +45,16 @@ type fakeLLM struct {
 	rateLimitOnce map[string]bool
 	// hardFail lists files whose every attempt returns 402.
 	hardFail map[string]bool
+	// timeoutFiles delays selected main review requests beyond the client deadline.
+	timeoutFiles map[string]bool
+	timeoutDelay time.Duration
+	// includeFinding 控制每个主审查任务先返回一条原生 code_comment。 // allow-non-english: 测试夹具字段用途说明
+	includeFinding bool
+	findingPath    string
+	findingSent    map[string]bool
+	summaryCalls   int
+	failSummary    bool
+	invalidSummary bool
 }
 
 // newFakeLLM returns a server that succeeds on the first attempt for every
@@ -54,6 +64,8 @@ func newFakeLLM() *fakeLLM {
 		attemptsByFile: map[string]int{},
 		rateLimitOnce:  map[string]bool{},
 		hardFail:       map[string]bool{},
+		timeoutFiles:   map[string]bool{},
+		findingSent:    map[string]bool{},
 	}
 }
 
@@ -101,6 +113,12 @@ func (f *fakeLLM) attemptCounts() map[string]int {
 	return out
 }
 
+func (f *fakeLLM) summaryCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.summaryCalls
+}
+
 // markers maps a per-file token that appears only in that file's diff onto the
 // file name. The prompt's change_files section lists the *other* file's path,
 // so matching on the path itself would misattribute requests; the marker only
@@ -145,6 +163,30 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw := body.Bytes()
 	file := f.fileOf(raw)
 	hasTools := bytes.Contains(raw, []byte(`"tools"`))
+	if bytes.Contains(raw, []byte("OCR_REPORT_ENRICHMENT")) {
+		f.mu.Lock()
+		f.summaryCalls++
+		fail := f.failSummary
+		invalid := f.invalidSummary
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if fail {
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"controlled summary failure"}}`))
+			return
+		}
+		summaryText := `{"summary_zh":"\u5c06 main.go \u7684\u56de\u4f20\u503c\u7531 1 \u8c03\u6574\u4e3a 2\u3002","modules":[{"name":".","summary_zh":"\u8c03\u6574 main.go \u7684\u56de\u4f20\u503c\u3002"}],"representative_changes":[{"path":"main.go","summary_zh":"return 1 \u6539\u4e3a return 2"}]}`
+		if invalid {
+			summaryText = `{"summary_zh":"\u4fee\u590d issue 42\u3002","modules":[{"name":"unknown","summary_zh":"\u6539\u9020\u5176\u4ed6\u670d\u52a1\u3002"}],"representative_changes":[{"path":"invented.go","summary_zh":"\u5904\u7406\u786e\u8ba4\u7f3a\u9677\u3002"}]}`
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"id": "msg_summary", "type": "message", "role": "assistant", "model": "claude-test",
+			"content":     []map[string]any{{"type": "text", "text": summaryText}},
+			"stop_reason": "end_turn", "usage": map[string]any{"input_tokens": 31, "output_tokens": 17},
+		})
+		_, _ = w.Write(payload)
+		return
+	}
 
 	// Answer the grouping call with one group per file. These tests are about
 	// per-request retry accounting, which needs each file to be its own request;
@@ -177,6 +219,14 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.mu.Lock()
+	timeout := hasTools && f.timeoutFiles[file]
+	timeoutDelay := f.timeoutDelay
+	f.mu.Unlock()
+	if timeout && timeoutDelay > 0 {
+		time.Sleep(timeoutDelay)
+	}
+
+	f.mu.Lock()
 	f.attemptsByFile[file]++
 	n := f.attemptsByFile[file]
 	rateLimit := f.rateLimitOnce[file] && n == 1
@@ -202,6 +252,22 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Main-task rounds carry tool definitions; the plan phase does not.
 	if hasTools {
+		f.mu.Lock()
+		path := f.findingPath
+		if path == "" {
+			path = file
+		}
+		includeFinding := f.includeFinding && path != "" && !f.findingSent[file]
+		if includeFinding {
+			f.findingSent[file] = true
+		}
+		f.mu.Unlock()
+		if includeFinding {
+			_, _ = fmt.Fprintf(w, `{"id":"msg_finding","type":"message","role":"assistant","model":"claude-test",
+				"content":[{"type":"tool_use","id":"tu_finding","name":"code_comment","input":{"comments":[{"content":"The changed return value breaks the expected behavior.","existing_code":"return 2","suggestion_code":"return 1","category":"bug","severity":"high","path":%q}]}}],
+				"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}`, path)
+			return
+		}
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-test",
 			"content":[{"type":"tool_use","id":"tu_1","name":"task_done","input":{"state":"DONE"}}],
 			"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}`))

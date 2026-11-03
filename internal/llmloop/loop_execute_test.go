@@ -40,8 +40,8 @@ func TestExecuteToolCall_DynamicNotRegistered(t *testing.T) {
 		Function: llm.FunctionCall{Name: "totally_unknown", Arguments: `{}`},
 	}, nil, "")
 
-	if cp.Data != tool.NotAvailableMsg {
-		t.Errorf("cp.Data = %q, want NotAvailableMsg", cp.Data)
+	if !strings.Contains(cp.Data, tool.NotAvailableMsg) || !strings.Contains(cp.Data, "totally_unknown") || !strings.Contains(cp.Data, "No tool was executed") {
+		t.Errorf("missing corrective unavailable-tool feedback: %q", cp.Data)
 	}
 }
 
@@ -119,8 +119,8 @@ func TestExecuteToolCall_KnownToolNotRegistered(t *testing.T) {
 		Function: llm.FunctionCall{Name: tool.FileRead.Name(), Arguments: `{"path":"x"}`},
 	}, nil, "")
 
-	if cp.Data != tool.NotAvailableMsg {
-		t.Errorf("cp.Data = %q, want NotAvailableMsg", cp.Data)
+	if !strings.Contains(cp.Data, tool.NotAvailableMsg) || !strings.Contains(cp.Data, "file_read") || !strings.Contains(cp.Data, "No tool was executed") {
+		t.Errorf("missing corrective unavailable-tool feedback: %q", cp.Data)
 	}
 }
 

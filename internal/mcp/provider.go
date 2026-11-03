@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -24,7 +25,12 @@ func (p *Provider) Tool() tool.Tool {
 }
 
 func (p *Provider) Execute(ctx context.Context, args map[string]any) (string, error) {
-	return p.client.CallTool(ctx, p.toolName, args)
+	result, err := p.client.CallTool(ctx, p.toolName, args)
+	var localError *argumentError
+	if errors.As(err, &localError) {
+		return localError.Error(), nil
+	}
+	return result, err
 }
 
 // RegisterAll registers tools from the MCP client into the tool registry.
