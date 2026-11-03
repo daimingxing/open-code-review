@@ -1,6 +1,6 @@
 # OpenCodeReview 知识库
 
-本知识库保存原生 OCR 的使用方式、实现边界与验证证据。项目级原则见[项目设计](../project-design.md)，审查与报告的具体行为见[功能 Spec](../../.scratch/review-report/spec.md)；不能把计划新增的 `--report`、`ocr report` 当作上游已有能力。
+本知识库保存原生 OCR 的使用方式、实现边界与验证证据。项目级原则见[项目设计](../project-design.md)，二次开发的审查与报告行为见[功能 Spec](../../.scratch/review-report/spec.md)。`--report` 和 `ocr report` 已在本项目实现，属于二开能力；新的 `--knowledge-dir` 仍待开发，见[原生知识库 Spec](../../.scratch/native-knowledge/spec.md)。
 
 ## 文档索引
 
@@ -9,7 +9,7 @@
 | [规则、背景与知识读取](rules-and-context.md) | rule 文件、背景、原生文件边界、外部 MCP 配置与验证、上下文成本 |
 | [结果、会话与 HTML 导出](results-and-sessions.md) | 原生 JSON / JSONL、输出路径、状态与覆盖、Viewer 和会话 HTML |
 
-[XR 规则示例](../examples/xr-review-rule.json) 仅演示内联审查规则，不是默认配置，也不包含完整知识库接入。
+XR 项目的可复用审查背景及知识库阅读指引见[资源索引](../review-resources.md)，这些测试资料不写入产品默认配置。
 
 ## 能力与入口
 
@@ -24,7 +24,7 @@ OCR 是代码审查 CLI：获取 Git 差异、筛选文件、加载规则、调�
 | 规则与背景 | `--rule`、`--background`、`--background-file` |
 | 范围预览 | `--preview`，不调用模型，不代表最终完成覆盖 |
 | 模型配置 | 供应商配置及 `--provider`、`--model`；配置通常位于 `~/.opencodereview/config.json` |
-| 外部工具 | MCP 客户端接入；文件 MCP 服务需要另行安装和配置 |
+| 外部工具 | 通用 MCP 客户端接入，按用户配置连接外部服务；本项目不再依赖文件 MCP 专用知识采集 |
 | 结果与会话 | `--format`、`--output`、`ocr session`、`ocr viewer` |
 | 委托宿主 | `ocr delegate preview` / `ocr delegate rule`，自身不调用模型，后续审查由宿主负责 |
 
@@ -41,8 +41,9 @@ OCR 是代码审查 CLI：获取 Git 差异、筛选文件、加载规则、调�
 | 2026-09-28 | CLI v1.12.10 | 真实模型单提交审查、结果 JSON 文件输出与覆盖信息 |
 | 2026-09-29 | 已安装 CLI 与本地源码 | 外部 JSON / Markdown 规则命中、内置文件读取边界 |
 | 2026-09-30 | 文件 MCP `2026.8.31`、原生 OCR、模型替身 | 外部索引及章节读取、工具白名单和目录外读取拒绝 |
+| 2026-11-03 | 本地 `dev` 集成提交 `0237abe` | 清理旧知识采集，合入官方 `main` 至 `b52b53b`；根模块普通回归、静态检查及构建结果见[同步记录](../retests/README.md#2026-11-03-上游同步) |
 
-仍待验证：真实模型的知识选读与应用效果、业务规则效果、完整结果字段与异常/恢复路径、原生会话 HTML 视觉效果。新报告功能尚未实现。在线主分支文档和 Skill 描述仅作为参考，不能覆盖已验证版本的实际行为。
+上表按日期记录当时的验证范围，不表示旧文件 MCP 方案仍是当前知识入口。报告材料和 HTML 智能体生成已经实现，真实效果及限制见[报告验收入口](../mock/report/README.md)和[复测记录](../retests/README.md)。旧知识专用采集已移除，原生知识库入口及其真实模型效果尚待开发验证；原生会话 HTML 视觉效果仍未完整验收。在线主分支文档和 Skill 描述不能覆盖已验证版本的实际行为。
 
 ## 执行与集成注意事项
 
