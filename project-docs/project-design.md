@@ -67,5 +67,6 @@
 | 功能 | 需求与实施 | 相关架构决策 |
 |---|---|---|
 | 外部知识驱动审查与多仓库 HTML 报告 | [Spec](../.scratch/review-report/spec.md) · [工单索引](../.scratch/review-report/README.md) | [审查与报告分离](adr/0001-separate-review-and-report.md) · [外部知识按需读取](adr/0002-external-knowledge-access.md) · [模型生成 HTML](adr/0003-model-generated-html.md) |
+| 原生工具访问外部知识库（计划） | [Spec](../.scratch/native-knowledge/spec.md)；先清理旧知识接入，再开发原生工具支持 | 计划替代现有[外部知识按需读取](adr/0002-external-knowledge-access.md)中的文件 MCP 选择；尚未实施 |
 
 新增功能在此登记入口，其具体需求不展开到本文件。

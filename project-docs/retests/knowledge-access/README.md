@@ -1,5 +1,29 @@
 # 外部知识访问回归
 
+## 原生知识库迁移的常用样本（待实现）
+
+真实效果复测使用[资源索引](../../review-resources.md#原生知识库常用验收样本)中的前端仓库、知识库和 `dev-1010...dev-1016`，不默认重复高成本的 `dev-1023...dev-1030`。可复用背景为 [xr-review-background.md](xr-review-background.md)，来源和提取边界见资源索引。
+
+下面的 `--knowledge-dir` 尚未实现，供[新 Spec](../../../.scratch/native-knowledge/spec.md)开发完成后使用；`--background-file` 本身已有支持。当前仅写 background 不会开放知识目录。
+
+在本项目根目录执行，使用构建后的本地 CLI 和已配置的模型：
+
+```powershell
+$cli = Join-Path (Get-Location) 'dist/opencodereview.exe'
+$background = Join-Path (Get-Location) 'project-docs/retests/knowledge-access/xr-review-background.md'
+& $cli review `
+  --repo 'D:\WorkPlace\longruan_codeReview\jk_web' `
+  --from dev-1010 --to dev-1016 `
+  --knowledge-dir 'D:\WorkPlace\longruan_codeReview\jk_web\.ai_knowledge' `
+  --background-file $background `
+  --effort low --concurrency 1 --max-tokens-budget 1000000 `
+  --report
+```
+
+这是付费模型效果测试，需主动执行。预算是累计输入加输出的 token 数（含缓存输入），并非货币额度或绝对硬上限；在途和收尾请求可能超出，触及预算允许只完成部分审查。记录实际覆盖与限制，不把部分结果当作完整验收。新实现应能通过原生工具按索引查阅真实知识，`--report` 生成报告 JSON；不在本命令内生成 HTML。
+
+以下保留既有 MCP 路径的回归记录，迁移清理阶段再按职责整理，不代表新入口依赖 MCP。
+
 验证文件 MCP 的授权根、越界拒绝、缺失与部分读取，以及真实模型能否读取指定知识章节并据此审查。探针脚本只连接本地 MCP；完整模型脚本会产生真实模型用量。
 
 ## MCP 边界探针
