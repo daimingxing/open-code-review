@@ -169,20 +169,8 @@ func (c *Client) Tools() []*mcp.Tool { return c.tools }
 
 // CallTool invokes a tool on the MCP server and returns the text result.
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
-	result, _, err, _ := c.CallToolForObservation(ctx, name, args)
-	return result, err
-}
-
-// CallToolWithStatus 保持模型可见响应，并向明确启用的观测器暴露协议级 IsError。 // allow-non-english: Chinese API contract comment required by repository instructions
-func (c *Client) CallToolWithStatus(ctx context.Context, name string, args map[string]any) (string, error, bool) {
-	result, _, err, serviceError := c.CallToolForObservation(ctx, name, args)
-	return result, err, serviceError
-}
-
-// CallToolForObservation 返回模型可见文本与 MCP 实际文本，供观测器只对服务返回值求摘要。 // allow-non-english: Chinese API contract comment required by repository instructions
-func (c *Client) CallToolForObservation(ctx context.Context, name string, args map[string]any) (string, string, error, bool) {
 	if feedback := c.validateArguments(name, args); feedback != "" {
-		return "", "", &argumentError{feedback: feedback}, false
+		return "", &argumentError{feedback: feedback}
 	}
 	params := &mcp.CallToolParams{
 		Name:      name,
@@ -191,15 +179,14 @@ func (c *Client) CallToolForObservation(ctx context.Context, name string, args m
 
 	result, err := c.session.CallTool(ctx, params)
 	if err != nil {
-		return "", "", fmt.Errorf("call MCP tool %q: %w", name, err), false
+		return "", fmt.Errorf("call MCP tool %q: %w", name, err)
 	}
 
-	actualText := contentToText(result.Content)
 	if result.IsError {
-		return fmt.Sprintf("MCP tool %q returned an error: %s", name, actualText), actualText, nil, true
+		return fmt.Sprintf("MCP tool %q returned an error: %s", name, contentToText(result.Content)), nil
 	}
 
-	return actualText, actualText, nil, false
+	return contentToText(result.Content), nil
 }
 
 func (c *Client) Close() error {

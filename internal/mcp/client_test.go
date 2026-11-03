@@ -278,14 +278,12 @@ func TestProvider_Execute_Integration(t *testing.T) {
 	if result != "hello world" {
 		t.Errorf("Execute result = %q, want %q", result, "hello world")
 	}
-	observedServiceError := false
-	failing := &Provider{toolName: "fail", client: c, observe: func(_ string, _ string, _ map[string]any, _ string, observedErr error, serviceError bool) {
-		observedServiceError = observedErr == nil && serviceError
-	}}
+	failing := &Provider{toolName: "fail", client: c}
 	result, err = failing.Execute(ctx, nil)
-	if err != nil || !strings.Contains(result, "controlled failure") || !observedServiceError {
-		t.Fatalf("IsError changed the model response or was hidden from observer: result=%q err=%v observed=%v", result, err, observedServiceError)
+	if err != nil || !strings.Contains(result, "controlled failure") {
+		t.Fatalf("service error lost: %q %v", result, err)
 	}
+
 }
 
 func TestMCPArgumentFeedbackPreservesServiceBoundary(t *testing.T) {
@@ -327,16 +325,8 @@ func TestMCPArgumentFeedbackPreservesServiceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &Client{name: "knowledge", session: cs, tools: listed.Tools}
-	observations := 0
-	serviceErrors := 0
-	provider := func(name string) *Provider {
-		return &Provider{toolName: name, client: c, observe: func(_ string, _ string, _ map[string]any, _ string, _ error, failed bool) {
-			observations++
-			if failed {
-				serviceErrors++
-			}
-		}}
-	}
+	provider := func(name string) *Provider { return &Provider{toolName: name, client: c} }
+
 	for _, tc := range []struct {
 		name string
 		args map[string]any
@@ -351,8 +341,8 @@ func TestMCPArgumentFeedbackPreservesServiceBoundary(t *testing.T) {
 		if err != nil || !strings.Contains(result, tc.want) || strings.Contains(result, "private-token-value") {
 			t.Fatalf("result=%q err=%v", result, err)
 		}
-		if calls.Load() != 0 || observations != 0 {
-			t.Fatal("local invalid call reached service or knowledge observer")
+		if calls.Load() != 0 {
+			t.Fatal("local invalid call reached service")
 		}
 	}
 	for _, tc := range []struct {
@@ -370,8 +360,8 @@ func TestMCPArgumentFeedbackPreservesServiceBoundary(t *testing.T) {
 			t.Fatalf("result=%q err=%v", result, err)
 		}
 	}
-	if calls.Load() != 4 || observations != 4 || serviceErrors != 1 {
-		t.Fatalf("calls=%d observations=%d serviceErrors=%d", calls.Load(), observations, serviceErrors)
+	if calls.Load() != 4 {
+		t.Fatalf("calls=%d", calls.Load())
 	}
 }
 
@@ -487,10 +477,10 @@ func TestNewClient_Integration(t *testing.T) {
 		if result == "" {
 			t.Error("expected non-empty error message")
 		}
-		result, err, serviceError := c.CallToolWithStatus(ctx, "fail", nil)
-		if err != nil || !serviceError || !strings.Contains(result, "something went wrong") {
-			t.Fatalf("CallToolWithStatus = (%q, %v, %v), want original text, nil Go error, and MCP IsError", result, err, serviceError)
+		if !strings.Contains(result, "something went wrong") {
+			t.Fatal(result)
 		}
+
 	})
 
 	t.Run("Close", func(t *testing.T) {

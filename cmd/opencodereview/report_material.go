@@ -25,11 +25,10 @@ import (
 const bareReportValue = "\x00"
 
 type reportMaterialOptions struct {
-	Snapshot              *workspaceSnapshotCapture
-	ProjectSummary        string
-	KnowledgeObservations []knowledgeToolObservation
-	LLMClient             llm.LLMClient
-	ModelName             string
+	Snapshot       *workspaceSnapshotCapture
+	ProjectSummary string
+	LLMClient      llm.LLMClient
+	ModelName      string
 }
 
 func reviewArgsValidator(opts *reviewOptions) cobra.PositionalArgs {
@@ -158,18 +157,16 @@ func buildReportMaterial(
 		workspaceSection = workspaceSnapshotSection(*options[0].Snapshot, manifest)
 	}
 	projectSummary := ""
-	var knowledgeObservations []knowledgeToolObservation
 	var summaryClient llm.LLMClient
 	summaryModelName := modelName
 	if len(options) > 0 {
 		projectSummary = options[0].ProjectSummary
-		knowledgeObservations = options[0].KnowledgeObservations
 		summaryClient = options[0].LLMClient
 		if options[0].ModelName != "" {
 			summaryModelName = options[0].ModelName
 		}
 	}
-	achievements, people, knowledge := enrichReportSections(context.Background(), gitRunner, repoDir, scope, manifest, toolFailures, projectSummary, knowledgeObservations, summaryClient, summaryModelName)
+	achievements, people, knowledge := enrichReportSections(context.Background(), gitRunner, repoDir, scope, manifest, projectSummary, summaryClient, summaryModelName)
 	sections := report.MaterialSections{
 		GitStatistics:     branchGitStatisticsSection(gitRunner, repoDir, scope),
 		WorkspaceSnapshot: workspaceSection,

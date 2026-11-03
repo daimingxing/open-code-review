@@ -8,7 +8,7 @@
 |---|---|
 | [报告材料](report-material/README.md) | 单提交、分支和工作区材料，完整性及失败恢复 |
 | [HTML 报告](html-report/README.md) | 智能体循环交付、材料读取、压缩继续、失败恢复和多份输入顺序 |
-| [外部知识访问](knowledge-access/README.md) | MCP 授权目录、文件读取边界和真实模型知识应用 |
+| [外部知识访问](knowledge-access/README.md) | 原生知识接入迁移状态、常用样本与可复用审查背景 |
 | [历史验收档案](archive/README.md) | 本次功能集成时的逐次测试结果、失败尝试和审查证据 |
 
 面向用户的简明验收步骤与真实输入从 [`project-docs/mock/`](../mock/README.md) 开始。归档中的命令反映当时的分支和工作树；当前复测应使用上方场景入口。

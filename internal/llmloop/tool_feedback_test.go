@@ -48,8 +48,7 @@ func TestRunMainTaskCorrectsMCPArguments(t *testing.T) {
 		taskDoneResponse(),
 	}}
 	deps := newTestDeps(fake)
-	observed := 0
-	ocrmcp.RegisterAll(deps.Tools, client, []string{"read_knowledge"}, func(_ string, _ string, _ map[string]any, _ string, _ error, _ bool) { observed++ })
+	ocrmcp.RegisterAll(deps.Tools, client, []string{"read_knowledge"})
 	deps.MainToolDefs = ocrmcp.CollectToolDefs([]*ocrmcp.Client{client}, deps.Tools)
 	var progress bytes.Buffer
 	defer stdout.Swap(&progress)()
@@ -57,8 +56,8 @@ func TestRunMainTaskCorrectsMCPArguments(t *testing.T) {
 	if err != nil || !completed {
 		t.Fatalf("completed=%v err=%v", completed, err)
 	}
-	if serviceCalls.Load() != 1 || observed != 1 {
-		t.Fatalf("service=%d observed=%d", serviceCalls.Load(), observed)
+	if serviceCalls.Load() != 1 {
+		t.Fatalf("service=%d", serviceCalls.Load())
 	}
 	for i, want := range []string{"Available tools", "Invalid declared fields: [path]", "start_line", "knowledge chapter"} {
 		data, _ := json.Marshal(fake.requests[i+1].Messages)

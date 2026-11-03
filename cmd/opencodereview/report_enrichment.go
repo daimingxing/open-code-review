@@ -5,21 +5,16 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alibaba/open-code-review/internal/gitcmd"
 	"github.com/alibaba/open-code-review/internal/llm"
-	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 )
@@ -91,268 +86,13 @@ type peopleMaterial struct {
 	Basis     string    `json:"basis"`
 }
 
-type knowledgeMaterial struct {
-	Status            string                     `json:"status"`
-	RuleConfigSHA256  string                     `json:"rule_config_sha256,omitempty"`
-	KnowledgeVersion  string                     `json:"knowledge_version_status"`
-	ApplicationStatus string                     `json:"application_status"`
-	Observations      []knowledgeToolObservation `json:"observations"`
-	Changed           bool                       `json:"changed"`
-	VersionChanges    []knowledgeVersionChange   `json:"version_changes"`
-	ReasonZH          string                     `json:"reason_zh"`
-}
-
-type knowledgeToolObservation struct {
-	CallNumber    int64    `json:"call_number"`
-	Server        string   `json:"server"`
-	Tool          string   `json:"tool"`
-	SourceStatus  string   `json:"source_status"`
-	Source        string   `json:"source,omitempty"`
-	Sources       []string `json:"sources,omitempty"`
-	RequestScope  string   `json:"request_scope,omitempty"`
-	Status        string   `json:"status"`
-	SHA256        string   `json:"sha256,omitempty"`
-	ResponseBytes int      `json:"response_bytes"`
-	Failure       string   `json:"failure,omitempty"`
-}
-
-type knowledgeVersionChange struct {
-	Server       string   `json:"server"`
-	Source       string   `json:"source,omitempty"`
-	Sources      []string `json:"sources,omitempty"`
-	RequestScope string   `json:"request_scope,omitempty"`
-	Previous     string   `json:"previous_sha256"`
-	Current      string   `json:"current_sha256"`
-}
-
-type knowledgeObservationRecorder struct {
-	mu             sync.Mutex
-	observations   []knowledgeToolObservation
-	nextCallNumber int64
-	roots          map[string][]string
-	repoDir        string
-}
-
-func newKnowledgeObservationRecorder(cfg *Config, repoDir string) *knowledgeObservationRecorder {
-	recorder := &knowledgeObservationRecorder{roots: make(map[string][]string), repoDir: repoDir}
-	if cfg == nil {
-		return recorder
-	}
-	for server, serverCfg := range cfg.MCPServers {
-		if serverCfg.Type == "remote" {
-			continue
-		}
-		for _, arg := range serverCfg.Args {
-			recorder.addRoot(server, arg)
-		}
-		for _, configuredEnv := range serverCfg.Env {
-			key, value, ok := strings.Cut(configuredEnv, "=")
-			key = strings.ToUpper(key)
-			if !ok || (!strings.Contains(key, "ROOT") && !strings.HasSuffix(key, "_DIR") && !strings.HasSuffix(key, "_DIRECTORY")) {
-				continue
-			}
-			recorder.addRoot(server, value)
-		}
-		sort.Slice(recorder.roots[server], func(i, j int) bool { return len(recorder.roots[server][i]) > len(recorder.roots[server][j]) })
-	}
-	return recorder
-}
-
-func (r *knowledgeObservationRecorder) addRoot(server, candidate string) {
-	if !filepath.IsAbs(candidate) && r.repoDir != "" {
-		candidate = filepath.Join(r.repoDir, candidate)
-	}
-	info, err := os.Stat(candidate)
-	if err != nil || !info.IsDir() {
-		return
-	}
-	root, err := filepath.Abs(candidate)
-	if err == nil {
-		r.roots[server] = append(r.roots[server], filepath.Clean(root))
-	}
-}
-
-func (r *knowledgeObservationRecorder) observe(server, name string, args map[string]any, result string, err error, serviceError bool) {
-	if r == nil {
-		return
-	}
-	if name == "server_unavailable" {
-		stage, _ := args["stage"].(string)
-		toolName := name
-		switch stage {
-		case "missing_url", "connect_failed", "missing_command", "setup_failed", "start_failed":
-		case "tool_unavailable":
-			toolName, _ = args["tool"].(string)
-			if !isKnownKnowledgeTool(toolName) {
-				return
-			}
-		default:
-			stage = "mcp_unavailable"
-		}
-		r.append(knowledgeToolObservation{Server: server, Tool: toolName, SourceStatus: "unknown", Status: "failed", Failure: stage})
-		return
-	}
-	if name != "read_text_file" && name != "read_multiple_files" {
-		return
-	}
-	sources, sourceOK := knowledgeSources(server, name, args, r.roots[server], r.repoDir)
-	observation := knowledgeToolObservation{
-		Server: server, Tool: name, Sources: sources, RequestScope: knowledgeRequestScope(args),
-		SourceStatus: "identified", Status: "complete", ResponseBytes: len(result),
-	}
-	if len(sources) == 1 {
-		observation.Source = sources[0]
-	}
-	if err != nil || serviceError {
-		observation.Status = "failed"
-		observation.Failure = "mcp_error"
-	} else if knowledgeReadIsPartial(args) || strings.TrimSpace(result) == "" {
-		observation.Status = "partial"
-	}
-	if !sourceOK {
-		observation.SourceStatus = "unknown"
-	}
-	if result != "" {
-		digest := sha256.Sum256([]byte(result))
-		observation.SHA256 = hex.EncodeToString(digest[:])
-	}
-	r.append(observation)
-}
-
-func hasKnownKnowledgeTool(tools []string) bool {
-	for _, name := range tools {
-		if isKnownKnowledgeTool(name) {
-			return true
-		}
-	}
-	return false
-}
-
-func isKnownKnowledgeTool(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "read_text_file", "read_multiple_files", "list_directory", "search_files":
-		return true
-	default:
-		return false
-	}
-}
-
-func (r *knowledgeObservationRecorder) append(observation knowledgeToolObservation) {
-	r.mu.Lock()
-	r.nextCallNumber++
-	observation.CallNumber = r.nextCallNumber
-	r.observations = append(r.observations, observation)
-	r.mu.Unlock()
-}
-
-func (r *knowledgeObservationRecorder) snapshot() []knowledgeToolObservation {
-	if r == nil {
-		return nil
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]knowledgeToolObservation(nil), r.observations...)
-}
-
-func observationSources(observation knowledgeToolObservation) []string {
-	if len(observation.Sources) > 0 {
-		return observation.Sources
-	}
-	if observation.Source != "" {
-		return []string{observation.Source}
-	}
-	return nil
-}
-
-func observationSourceStatus(observation knowledgeToolObservation) string {
-	if observation.SourceStatus != "" {
-		return observation.SourceStatus
-	}
-	if len(observationSources(observation)) > 0 {
-		return "identified"
-	}
-	return "unknown"
-}
-
-func knowledgeSources(server, toolName string, args map[string]any, roots []string, repoDir string) ([]string, bool) {
-	var raw []string
-	if toolName == "read_text_file" {
-		if value, ok := args["path"].(string); ok && strings.TrimSpace(value) != "" {
-			raw = []string{value}
-		}
-	} else if values, ok := args["paths"].([]any); ok {
-		for _, value := range values {
-			if path, ok := value.(string); ok && strings.TrimSpace(path) != "" {
-				raw = append(raw, path)
-			}
-		}
-	}
-	if len(raw) == 0 {
-		return nil, false
-	}
-	sources := make([]string, 0, len(raw))
-	for _, value := range raw {
-		source, ok := knowledgeRelativeSource(value, roots, repoDir)
-		if !ok {
-			return nil, false
-		}
-		sources = append(sources, source)
-	}
-	return sources, true
-}
-
-func knowledgeRelativeSource(value string, roots []string, repoDir string) (string, bool) {
-	if !filepath.IsAbs(value) && repoDir != "" {
-		value = filepath.Join(repoDir, value)
-	}
-	abs, err := filepath.Abs(value)
-	if err != nil {
-		return "", false
-	}
-	for _, root := range roots {
-		rel, err := filepath.Rel(root, abs)
-		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.ToSlash(rel), true
-		}
-	}
-	return "", false
-}
-
-func knowledgeRequestScope(args map[string]any) string {
-	scope := make(map[string]any)
-	for _, key := range []string{"head", "tail", "offset", "limit", "start_line", "end_line", "max_lines"} {
-		if value, ok := args[key]; ok {
-			scope[key] = value
-		}
-	}
-	if len(scope) == 0 {
-		return "full"
-	}
-	encoded, err := json.Marshal(scope)
-	if err != nil {
-		return "restricted"
-	}
-	return string(encoded)
-}
-
-func knowledgeReadIsPartial(args map[string]any) bool {
-	for _, key := range []string{"head", "tail", "offset", "limit", "start_line", "end_line", "max_lines"} {
-		if value, ok := args[key]; ok && value != nil {
-			return true
-		}
-	}
-	return false
-}
-
 func enrichReportSections(
 	ctx context.Context,
 	runner *gitcmd.Runner,
 	repoDir string,
 	scope report.Scope,
 	manifest *session.RunManifest,
-	toolFailures []llmloop.ToolFailureDetail,
 	projectSummary string,
-	observations []knowledgeToolObservation,
 	summaryClient llm.LLMClient,
 	modelName string,
 ) (report.Section, report.Section, report.Section) {
@@ -376,7 +116,7 @@ func enrichReportSections(
 			people = peopleSection(material)
 		}
 	}
-	knowledge := knowledgeSourcesSection(manifest, observations)
+	knowledge := knowledgeSourcesSection()
 	return achievements, people, knowledge
 }
 
@@ -647,128 +387,6 @@ func peopleSection(material commitMaterial) report.Section {
 	return report.Section{Status: report.StatusProvided, Data: data}
 }
 
-func knowledgeSourcesSection(manifest *session.RunManifest, observations []knowledgeToolObservation) report.Section {
-	if manifest == nil {
-		return notCollectedSection("原生 manifest 不可用，未能确认规则或知识来源") // allow-non-english: report JSON requires Chinese missing-value reason
-	}
-	if len(observations) == 0 {
-		return notCollectedSection("本次运行未观察到外部知识工具读取；规则哈希不等于知识正文已读取") // allow-non-english: report JSON requires Chinese not-observed reason
-	}
-	observed := make([]knowledgeToolObservation, 0, len(observations))
-	changes := make([]knowledgeVersionChange, 0)
-	lastVersions := map[string]string{}
-	var failed, partial, identified, unknownSource int
-	ordered := append([]knowledgeToolObservation(nil), observations...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].CallNumber < ordered[j].CallNumber })
-	for _, observation := range ordered {
-		observed = append(observed, observation)
-		switch observation.Status {
-		case "complete", "partial":
-			sources := observationSources(observation)
-			if observationSourceStatus(observation) == "unknown" {
-				unknownSource++
-				if observation.Status == "partial" {
-					partial++
-				}
-				continue
-			}
-			identified++
-			if observation.Status == "partial" {
-				partial++
-			}
-			identity, _ := json.Marshal([]any{observation.Server, sources, observation.RequestScope})
-			key := string(identity)
-			if observation.SHA256 != "" {
-				if previous, exists := lastVersions[key]; exists && previous != observation.SHA256 {
-					change := knowledgeVersionChange{
-						Server: observation.Server, RequestScope: observation.RequestScope,
-						Previous: previous, Current: observation.SHA256,
-					}
-					if len(sources) == 1 {
-						change.Source = sources[0]
-					} else {
-						change.Sources = sources
-					}
-					changes = append(changes, change)
-				}
-				lastVersions[key] = observation.SHA256
-			}
-		case "failed":
-			failed++
-		case "not_observed":
-		}
-	}
-	sort.SliceStable(changes, func(i, j int) bool {
-		if changes[i].Source != changes[j].Source {
-			return changes[i].Source < changes[j].Source
-		}
-		if changes[i].Server != changes[j].Server {
-			return changes[i].Server < changes[j].Server
-		}
-		return changes[i].RequestScope < changes[j].RequestScope
-	})
-	if identified == 0 && failed == 0 && unknownSource == 0 {
-		return notCollectedSection("观察到的外部工具没有可识别的知识文件来源；未将调用计数当作读取证据") // allow-non-english: report JSON requires Chinese not-observed reason
-	}
-	status, sectionStatus, reason := "observed", report.StatusProvided, ""
-	if identified == 0 {
-		if unknownSource > 0 {
-			status, sectionStatus, reason = "partial", report.StatusFailed, "已收到 MCP 正文返回值并记录摘要，但无法将来源安全映射到授权知识根" // allow-non-english: report JSON requires Chinese provenance limit
-		} else {
-			status, sectionStatus, reason = "failed", report.StatusFailed, "外部知识读取失败，未取得可校验正文版本" // allow-non-english: report JSON requires Chinese failure reason
-		}
-	} else if failed > 0 || partial > 0 || unknownSource > 0 || len(changes) > 0 {
-		status, sectionStatus = "partial", report.StatusFailed
-		switch {
-		case len(changes) > 0:
-			reason = "同一知识来源在本次审查中返回不同内容摘要，版本一致性无法确认" // allow-non-english: user-facing Chinese version limitation
-		case partial > 0 && failed > 0:
-			reason = "知识读取包含受限正文或失败调用；材料只记录实际返回范围与摘要" // allow-non-english: user-facing Chinese read limitation
-		case partial > 0 && unknownSource > 0:
-			reason = "知识读取范围受限，且部分 MCP 正文来源无法映射到授权知识根" // allow-non-english: user-facing Chinese source limitation
-		case partial > 0:
-			reason = "知识读取返回范围受限或为空，不能视为完整正文" // allow-non-english: user-facing Chinese read limitation
-		case unknownSource > 0:
-			reason = "部分 MCP 正文返回值无法映射到授权知识根；只保留返回摘要和字节数" // allow-non-english: user-facing Chinese source limitation
-		default:
-			reason = "部分知识读取失败；其余记录仅覆盖实际返回正文" // allow-non-english: user-facing Chinese read limitation
-		}
-	}
-	versionStatus := "not_observed"
-	if partial > 0 || (unknownSource > 0 && identified > 0) || (failed > 0 && identified > 0) {
-		versionStatus = "partial"
-	} else if identified > 0 {
-		versionStatus = "observed"
-	} else if unknownSource > 0 {
-		versionStatus = "source_unknown"
-	} else if failed > 0 {
-		versionStatus = "failed"
-	}
-	data, err := json.Marshal(knowledgeMaterial{
-		Status: status, RuleConfigSHA256: manifest.Execution.RuleConfigSHA256,
-		KnowledgeVersion: versionStatus, ApplicationStatus: "not_observed",
-		Observations: observed, Changed: len(changes) > 0, VersionChanges: changes, ReasonZH: reason,
-	})
-	if err != nil {
-		return report.Section{Status: report.StatusFailed, Reason: "知识来源事实无法编码"} // allow-non-english: report JSON requires Chinese failure reason
-	}
-	return report.Section{Status: sectionStatus, Reason: reason, Data: data}
-}
-
-func containsString(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
-}
-
-func isNativeReviewTool(name string) bool {
-	switch name {
-	case "file_read", "file_find", "file_read_diff", "code_search", "code_comment":
-		return true
-	default:
-		return false
-	}
+func knowledgeSourcesSection() report.Section {
+	return notCollectedSection("未观察到知识来源：旧文件 MCP 专用采集已移除，原生知识接入尚未实现") // allow-non-english: report explains the knowledge migration gap
 }

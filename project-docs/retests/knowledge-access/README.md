@@ -22,57 +22,8 @@ $background = Join-Path (Get-Location) 'project-docs/retests/knowledge-access/xr
 
 这是付费模型效果测试，需主动执行。预算是累计输入加输出的 token 数（含缓存输入），并非货币额度或绝对硬上限；在途和收尾请求可能超出，触及预算允许只完成部分审查。记录实际覆盖与限制，不把部分结果当作完整验收。新实现应能通过原生工具按索引查阅真实知识，`--report` 生成报告 JSON；不在本命令内生成 HTML。
 
-以下保留既有 MCP 路径的回归记录，迁移清理阶段再按职责整理，不代表新入口依赖 MCP。
+## 过渡状态与回归
 
-验证文件 MCP 的授权根、越界拒绝、缺失与部分读取，以及真实模型能否读取指定知识章节并据此审查。探针脚本只连接本地 MCP；完整模型脚本会产生真实模型用量。
+2026-11-03：已移除旧文件 MCP 专用的知识来源采集及活动探针、配置和真实模型脚本；不再要求安装 @modelcontextprotocol/server-filesystem。通用 MCP 与参数反馈继续保留，可调用其他外部服务。
 
-## MCP 边界探针
-
-OCR 在调用前依据工具实际声明校验可确定的参数错误，返回模型可纠正的反馈，不触发服务调用或伪造知识观测；参数符合声明后仍由服务执行并限制授权目录。声明允许额外字段时原样传递，不承诺识别被服务忽略的参数，也不为第三方工具补造行区间读取能力。
-
-可控服务与智能体循环回归（无真实模型用量）：
-
-```powershell
-go test ./internal/mcp ./internal/llmloop -run 'TestMCPArgumentFeedback|TestRunMainTaskCorrectsMCPArguments|TestRunMainTaskTextOnlyThenDone|TestUsageStatus' -count=1 -timeout=90s
-```
-
-预期明确错误参数未到达服务，反馈进入原对话，修正后可读取并结束；合法开放字段及动态键保持可用，越界仍被服务拒绝。
-
-需要 PowerShell 7、Node.js/npm、可访问 npm registry。探针只在系统临时目录创建测试文件：
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$root = Join-Path ([IO.Path]::GetTempPath()) ('ocr-knowledge-probe-' + [guid]::NewGuid().ToString('N'))
-$mcp = Join-Path $root 'mcp'
-$entry = Join-Path $mcp 'node_modules/@modelcontextprotocol/server-filesystem/dist/index.js'
-try {
-    New-Item -ItemType Directory -Path $root | Out-Null
-    npm install --prefix $mcp --ignore-scripts --no-audit --no-fund '@modelcontextprotocol/server-filesystem@2026.8.31'
-    if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $entry)) { throw 'filesystem MCP 安装失败' }
-    $outside = Join-Path $root 'outside.md'
-    Set-Content -LiteralPath $outside -Value 'outside probe' -NoNewline
-    & ./project-docs/retests/knowledge-access/probe-boundary.ps1 `
-      -McpEntry $entry `
-      -TestRoot (Join-Path $root 'authorized') `
-      -OutsideFile $outside
-    if ($LASTEXITCODE -ne 0) { throw 'MCP 路径边界探针失败' }
-    & ./project-docs/retests/knowledge-access/probe-content.ps1 `
-      -McpEntry $entry `
-      -TestRoot (Join-Path $root 'content')
-    if ($LASTEXITCODE -ne 0) { throw 'MCP 内容探针失败' }
-} finally {
-    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-}
-```
-
-Linux 真符号链接检查另需 Podman machine、容器镜像和 npm 网络，入口为 `probe-linux-symlink.ps1`。Windows 普通文件符号链接曾因会话权限不足而未验证；不要把 Junction 结果当作该项通过。
-
-## 真实知识应用
-
-需要 PATH 中的全局 Go、Node.js/npm、可访问 npm registry、已授权的 DeepSeek 配置，以及[资源索引](../../review-resources.md)所列前后端仓库、知识目录和固定提交。它会只读样例仓库、调用真实模型，并在 ACL 保护的临时目录中保存结果：
-
-```powershell
-& ./project-docs/retests/knowledge-access/run-live-review.ps1
-```
-
-预期两个审查完成，知识来源及版本状态为 `observed`，MCP 调用失败数为 0；是否实际应用知识还须对照 findings 与成功读取记录。复测配置模板和规则分别位于 `configs/`、`rules/`。本次运行证据与未验证限制见[验收档案索引](../archive/README.md)。
+当前尚未实现原生知识参数，报告的 knowledge_sources 明确为 not_collected；已有报告 JSON 仍可用于 HTML 生成。既有读取证据只作为[历史档案](../archive/README.md)，不作为当前安装或验收步骤。
