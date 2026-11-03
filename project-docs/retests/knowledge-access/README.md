@@ -2,7 +2,7 @@
 
 ## 原生知识库迁移的常用样本（待实现）
 
-真实效果复测使用[资源索引](../../review-resources.md#原生知识库常用验收样本)中的前端仓库、知识库和 `dev-1010...dev-1016`，不默认重复高成本的 `dev-1023...dev-1030`。可复用背景为 [xr-review-background.md](xr-review-background.md)，来源和提取边界见资源索引。
+真实模型功能复测使用[资源索引](../../review-resources.md#原生知识库常用验收样本)中的前端仓库、知识库和 `dev-1010...dev-1016`，不默认重复高成本的 `dev-1023...dev-1030`。可复用背景为 [xr-review-background.md](xr-review-background.md)，来源和提取边界见资源索引。自行测试显式使用 `--effort low`，只验证功能链路，不以审查效果或知识应用质量作为通过条件，不为改善效果提高 effort 或反复付费运行。
 
 下面的 `--knowledge-dir` 尚未实现，供[新 Spec](../../../.scratch/native-knowledge/spec.md)开发完成后使用；`--background-file` 本身已有支持。当前仅写 background 不会开放知识目录。
 
@@ -20,7 +20,7 @@ $background = Join-Path (Get-Location) 'project-docs/retests/knowledge-access/xr
   --report
 ```
 
-这是付费模型效果测试，需主动执行。预算是累计输入加输出的 token 数（含缓存输入），并非货币额度或绝对硬上限；在途和收尾请求可能超出，触及预算允许只完成部分审查。记录实际覆盖与限制，不把部分结果当作完整验收。新实现应能通过原生工具按索引查阅真实知识，`--report` 生成报告 JSON；不在本命令内生成 HTML。
+这是付费模型功能测试，需主动执行。预算是累计输入加输出的 token 数（含缓存输入），并非货币额度或绝对硬上限；在途和收尾请求可能超出，触及预算允许只完成部分审查。记录实际覆盖与限制，不把部分结果当作完整验收。新实现应能通过原生工具按索引查阅真实知识，`--report` 生成报告 JSON；不在本命令内生成 HTML。
 
 ## 过渡状态与回归
 
