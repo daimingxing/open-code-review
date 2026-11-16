@@ -202,6 +202,13 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 	if err != nil {
 		return err
 	}
+	if base != nil {
+		for _, defs := range [][]llm.ToolDef{rt.PlanToolDefs, rt.MainToolDefs} {
+			if err := enableKnowledgeTools(defs); err != nil {
+				return err
+			}
+		}
+	}
 	maxTokens, err := resolveMaxTokens(cc.Template.MaxTokens, rt.AppCfg, opts.maxTokens)
 	if err != nil {
 		return err

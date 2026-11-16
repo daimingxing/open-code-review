@@ -179,3 +179,60 @@ func TestKnowledgeCLIInvalidDirectoryBeforeModel(t *testing.T) {
 		}
 	}
 }
+
+func TestKnowledgeCLIAdvertisesConfiguredTools(t *testing.T) {
+	for _, enabled := range []bool{false, true, false} {
+		t.Run(fmt.Sprintf("enabled=%v", enabled), func(t *testing.T) {
+			setTestHome(t, t.TempDir())
+			repo, kb := knowledgeTestRepo(t, false)
+			if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package p\n"+strings.Repeat("var _ = 1\n", 60)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var plans, mains atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					http.Error(w, "decode", 400)
+					return
+				}
+				if !reportRequestHasTools(request) {
+					plans.Add(1)
+					if got := strings.Contains(reportRequestText(request), "  - directory:"); got != enabled {
+						t.Errorf("plan directory advertised=%v, want %v", got, enabled)
+					}
+					writeReportText(w, 10, 5, "Review main.go only.")
+					return
+				}
+				mains.Add(1)
+				for _, entry := range request["tools"].([]any) {
+					fn := entry.(map[string]any)["function"].(map[string]any)
+					properties := fn["parameters"].(map[string]any)["properties"].(map[string]any)
+					if fn["name"] == "code_search" || fn["name"] == "file_find" {
+						_, got := properties["directory"]
+						if got != enabled {
+							t.Errorf("%s directory advertised=%v, want %v", fn["name"], got, enabled)
+						}
+					}
+					if fn["name"] == "file_read" {
+						property := properties["file_path"].(map[string]any)
+						if got := strings.Contains(property["description"].(string), "knowledge_bases"); got != enabled {
+							t.Errorf("knowledge read advertised=%v, want %v", got, enabled)
+						}
+					}
+				}
+				writeReportToolCalls(w, 10, 5, reportToolCall("done", "task_done", map[string]any{"state": "DONE"}))
+			}))
+			defer server.Close()
+			configureReportLLM(t, server.URL)
+			args := []string{"--repo", repo, "--effort", "low", "--concurrency", "1", "--no-filter"}
+			if enabled {
+				args = append(args, "--knowledge-dir", kb)
+			}
+			_, stderr, err := runReportReview(t, args...)
+			if err != nil || plans.Load() != 1 || mains.Load() != 1 {
+				t.Fatalf("review: %v, plans=%d mains=%d\n%s", err, plans.Load(), mains.Load(), stderr)
+			}
+		})
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alibaba/open-code-review/internal/gitcmd"
 	"github.com/alibaba/open-code-review/internal/llmloop"
 	"github.com/alibaba/open-code-review/internal/model"
 	"github.com/alibaba/open-code-review/internal/report"
@@ -137,6 +138,11 @@ func TestReviewE2E_ReportBarePathIncludesZeroFindingsAndNativeOutput(t *testing.
 
 func TestReviewE2E_ReportFindingAndNativeJSONAreIndependent(t *testing.T) {
 	repoDir := reportMaterialTestRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package p\nfunc value() int {\nreturn 2\n}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	retryTestGit(t, repoDir, "add", "main.go")
+	retryTestGit(t, repoDir, "commit", "-q", "-m", "split return line")
 	srv := newFakeLLM()
 	srv.includeFinding = true
 	srv.findingPath = "main.go"
@@ -183,6 +189,10 @@ func TestReviewE2E_ReportFindingAndNativeJSONAreIndependent(t *testing.T) {
 	}
 	if finding.SourceContent != native.Comments[0].Content || finding.Evidence.Code != "return 2" || finding.Recommendation.Code != "return 1" {
 		t.Fatalf("finding source/evidence/recommendation were not preserved: %+v", finding)
+	}
+	committer, err := gitcmd.New(1).Output(t.Context(), repoDir, "show", "-s", "--format=%cn", "HEAD")
+	if err != nil || len(finding.CommitterNames) != 1 || finding.CommitterNames[0] != strings.TrimSpace(string(committer)) {
+		t.Fatalf("finding=%+v, Git=%q, err=%v, limitations=%+v", finding, committer, err, material.Limitations)
 	}
 	if !strings.Contains(finding.Display.SummaryZH, "发现高级缺陷问题") || strings.Contains(string(data), `"thinking"`) { // allow-non-english: asserts required Chinese display output
 		t.Fatalf("Chinese display summary or private-field exclusion failed: %s", data)

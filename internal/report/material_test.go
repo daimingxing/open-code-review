@@ -173,6 +173,27 @@ func TestValidateMaterialChecksFindingFactFieldsAndUniqueIDs(t *testing.T) {
 	}
 
 	material.Findings[1].ID = "sha256:" + strings.Repeat("b", 64)
+	for _, names := range [][]string{nil, {}, {"Alice", "Bob"}} {
+		material.Findings[0].CommitterNames = names
+		encoded, err := json.Marshal(material)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if names == nil {
+			encoded = bytes.ReplaceAll(encoded, []byte(`"committer_names":null,`), nil)
+		}
+		decoded, err := DecodeMaterial(encoded)
+		if err != nil || len(decoded.Findings[0].CommitterNames) != len(names) {
+			t.Fatalf("committer names round trip: names=%v err=%v", names, err)
+		}
+	}
+	for _, names := range [][]string{{" "}, {"Alice", "Alice"}} {
+		material.Findings[0].CommitterNames = names
+		if err := ValidateMaterial(material); err == nil || !strings.Contains(err.Error(), "committer_names") {
+			t.Fatalf("invalid committer names=%v err=%v", names, err)
+		}
+	}
+	material.Findings[0].CommitterNames = nil
 	material.Findings[1].Severity = "urgent"
 	if err := ValidateMaterial(material); err == nil || !strings.Contains(err.Error(), "severity") {
 		t.Fatalf("ValidateMaterial error = %v, want severity error", err)

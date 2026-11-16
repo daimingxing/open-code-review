@@ -131,6 +131,7 @@ type Finding struct {
 	CategoryStatus Status                `json:"category_status"`
 	CategoryReason string                `json:"category_reason,omitempty"`
 	SourceContent  string                `json:"source_content"`
+	CommitterNames []string              `json:"committer_names"`
 	Display        FindingDisplay        `json:"display"`
 	Evidence       FindingEvidence       `json:"evidence"`
 	Recommendation FindingRecommendation `json:"recommendation"`
@@ -412,6 +413,13 @@ func validateFinding(index int, finding Finding) error {
 	}
 	if finding.SourceContent == "" {
 		return fmt.Errorf("%s.source_content is required", prefix)
+	}
+	names := make(map[string]bool, len(finding.CommitterNames))
+	for _, name := range finding.CommitterNames {
+		if strings.TrimSpace(name) == "" || names[name] {
+			return fmt.Errorf("%s.committer_names must contain nonempty, unique names", prefix)
+		}
+		names[name] = true
 	}
 	if finding.Display.SummaryZH == "" || finding.Display.SeverityZH == "" || finding.Display.CategoryZH == "" {
 		return fmt.Errorf("%s.display requires Chinese summary, severity and category labels", prefix)

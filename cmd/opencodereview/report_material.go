@@ -232,6 +232,7 @@ func buildReportMaterial(
 	if err != nil {
 		return report.Material{}, err
 	}
+	committerLimitations := collectFindingCommitters(gitRunner, repoDir, scope, findings)
 	workspaceSection := notCollectedSection("本次审查尚未采集工作区状态统计") // allow-non-english: report JSON requires Chinese user-facing facts
 	if manifest.Input.Mode == session.InputModeWorkspace && len(options) > 0 && options[0].Snapshot != nil {
 		workspaceSection = workspaceSnapshotSection(*options[0].Snapshot, manifest)
@@ -279,7 +280,7 @@ func buildReportMaterial(
 		Coverage:    manifest.Coverage,
 		RunFailure:  manifest.RunFailure,
 		Sections:    sections,
-		Limitations: materialLimitations(manifest, scope, sections, findings, toolFailures),
+		Limitations: append(materialLimitations(manifest, scope, sections, findings, toolFailures), committerLimitations...),
 	}
 	return material, nil
 }
@@ -467,6 +468,7 @@ func materialFindings(manifest *session.RunManifest, repoName string, comments [
 			CategoryStatus: categoryStatus,
 			CategoryReason: categoryReason,
 			SourceContent:  comment.Content,
+			CommitterNames: []string{},
 			Display: report.FindingDisplay{
 				SummaryZH:  fmt.Sprintf("%s 的%s发现%s%s问题。原始审查意见：%s", comment.Path, position, severityPhrase, categoryPhrase, comment.Content), // allow-non-english: report JSON requires Chinese finding display text
 				SeverityZH: severityZH,

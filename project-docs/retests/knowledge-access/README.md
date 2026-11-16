@@ -24,6 +24,17 @@ $background = Join-Path (Get-Location) 'project-docs/retests/knowledge-access/xr
 
 ## 当前状态与回归
 
+2026-11-16，内置工具声明改为按 `review --knowledge-dir` 启用知识参数。`TestKnowledgeCLIAdvertisesConfiguredTools` 使用本地可控 HTTP 模型与临时 Git 仓库，依次执行未配置、已配置、未配置知识库的实际 CLI；直接检查计划提示中的工具参数、主审查请求的 JSON 参数结构和知识读取说明。既有知识读取测试继续覆盖磁盘资料、目标 Git 版本、恢复及来源记录；不调用付费模型，不以声明正确推断实际审查质量改善。
+
+定向复跑（本机未安装 C 编译器，显式关闭 race）：
+
+```powershell
+$env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
+make test 'PACKAGES=./cmd/opencodereview -race=false -run TestKnowledgeCLI'
+```
+
+本轮完整相关回归使用 `make test 'PACKAGES=./cmd/opencodereview ./internal/config/toolsconfig ./internal/agent -race=false'`，三个包通过；`go vet ./cmd/opencodereview ./internal/config/toolsconfig ./internal/agent`、`make build` 和差异检查通过。`make license-add` 未修改文件，`make check` 的许可证检查通过，英文检查仍由历史人工样例的 31 行中文阻断；本次修改无新增违规。未启用 race，未重跑真实付费审查，不声明实际模型用量已经降低。
+
 2026-11-03：已移除旧文件 MCP 专用的知识来源采集及活动探针、配置和真实模型脚本；不再要求安装 @modelcontextprotocol/server-filesystem。通用 MCP 与参数反馈继续保留，可调用其他外部服务。
 
 原生知识读取、查找、搜索、恢复校验及报告来源记录已经接通；未配置或未访问知识时明确保留未采集说明，查找、搜索与实际读取分别记录。已有报告 JSON 仍可用于 HTML 生成。旧文件 MCP 的读取证据只作为[历史档案](../archive/README.md)，不作为当前安装或验收步骤。

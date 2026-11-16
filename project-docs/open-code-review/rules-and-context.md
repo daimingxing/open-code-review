@@ -72,6 +72,8 @@ ocr review --repo "E:\代码仓库" --from main --to feature/example --backgroun
 
 本项目的 `review --knowledge-dir` 仅支持一个显式目录，相对路径按命令调用目录解析。模型通过 `knowledge_bases` 任务区块获得实际目录；查找及搜索可传 `directory` 定向到知识目录或其中的子目录，读取使用返回路径及原有行号参数。知识搜索支持 glob、目录前缀和 `:(exclude)`，源码搜索保留原有 Git pathspec。知识权限不会从背景或规则推导，也不会自动打开文件 MCP；有效空目录允许使用，无效目录在模型调用前报错。背景文件的相对路径仍按目标仓库解析，跨仓库调用建议提供绝对路径。
 
+内置工具默认不声明 `directory`，仅在 `review` 显式配置有效知识目录时加入该参数与知识读取说明，并同步到计划阶段的工具参考和主审查阶段的工具参数。源码搜索使用 `file_patterns` 限定目录，源码查找使用 `query_name` 中的路径；`directory` 专用于授权知识目录。即使模型猜测未声明的参数，执行端仍检查知识授权。
+
 会话和报告材料记录实际访问、局部性、截断及失败；搜索记录匹配文件和行号，读取记录源文件标识，不将读取等同于正确应用。资料变化检查仅针对实际读取文件，不建立整个目录快照；恢复时配置或已读资料不兼容会拒绝复用。共享压缩继续保留任务初始知识区块，不增加知识专用阈值。功能验证及限制见[原生知识库复测](../retests/knowledge-access/README.md)。
 
 `--tools` 修改工具定义不等于实现新的工具执行行为。OCR 原生有 MCP 客户端；[initMCPClients](../../cmd/opencodereview/review_cmd.go) 接入服务，[RegisterAll](../../internal/mcp/provider.go) 注册工具，无须先扩展 rule 解析器。MCP 初始化失败会警告并继续审查，不能依赖规则提示实现程序级强制中断。

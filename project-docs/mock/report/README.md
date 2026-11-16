@@ -58,6 +58,8 @@ Get-Item -LiteralPath $knowledgeDir
 
 每次审查只能指定一个知识目录，建议使用绝对路径。目录内可以包含未跟踪或被 Git 忽略的资料，不要求资料存在于被审查的提交中；指定目录中的知识文件不作为代码审查目标。目录无效会在模型调用前报错。授权不保证模型一定读取或正确应用资料，验收时还需核对实际访问记录。
 
+只有显式配置知识目录的 `review` 才向模型声明知识搜索、查找的 `directory` 参数。未配置时保留普通源码工具；源码搜索通过 `file_patterns` 限定目录，不能把源码目录填入知识参数。
+
 ## 2.2. 指定审查规则
 
 `--rule` 接受规则 JSON，不直接接受 Skill 目录或任意 Markdown。下面在临时目录生成一份前后端均可使用的最小规则；实际使用时将规则正文换成项目标准，或将 `$reviewRule` 指向已有规则 JSON：
@@ -120,6 +122,8 @@ $knowledgeDir = Join-Path $repo '.ai_knowledge'
 ```
 
 保存 JSON 成功不等于审查完整完成。检查 `review.status`、`coverage.completed/failed` 和 `limitations`：`partial` 表示仅部分完成，`task_done` 只表示某组某轮结束。知识访问事实在 `sections.knowledge_sources` 中，需区分查找、搜索和实际读取；未采集或未读取不能当作知识核对通过。完整验收应确认所有选中目标均有完成覆盖，并核对需要的知识是否实际读取。
+
+每条 `findings` 的 `committer_names` 是问题定位范围各行最后提交者的姓名数组，允许多人，仅提供 Git 关联，不表示责任认定。分支和单提交审查按固定目标版本采集；工作区问题、定位缺失或历史采集失败时为空，具体原因在 `limitations` 中。旧报告没有本字段时，HTML 也显示“未确定”；已有 JSON 不会因更新程序自动补齐姓名。
 
 ## 4. 直接生成并查看 HTML
 
