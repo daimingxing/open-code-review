@@ -5,6 +5,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,46 @@ import (
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 )
+
+func TestReviewE2E_ReportPathPreparedBeforeModel(t *testing.T) {
+	repoDir := reportMaterialTestRepo(t)
+	srv := newFakeLLM()
+	startFakeLLM(t, srv)
+	directory := filepath.Join(t.TempDir(), "new", "reports")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+			t.Errorf("model called before preparing report directory: %v", err)
+		}
+		srv.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	t.Setenv("OCR_LLM_URL", server.URL+"/v1/messages")
+	_, stderr, err := runReportReview(t, "--repo", repoDir, "--commit", "HEAD", "--report", directory+string(os.PathSeparator))
+	if err != nil {
+		t.Fatalf("review: %v\n%s", err, stderr)
+	}
+	paths, err := filepath.Glob(filepath.Join(directory, "*.report.json"))
+	if err != nil || len(paths) != 1 || !strings.Contains(stderr, paths[0]) {
+		t.Fatalf("report not delivered: %v, %v\n%s", paths, err, stderr)
+	}
+}
+
+func TestReviewE2E_ReportInvalidPathFallsBack(t *testing.T) {
+	repoDir := reportMaterialTestRepo(t)
+	startFakeLLM(t, newFakeLLM())
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := runReportReview(t, "--repo", repoDir, "--commit", "HEAD", "--report", filepath.Join(blocker, "report.json"))
+	if err != nil {
+		t.Fatalf("review: %v\n%s", err, stderr)
+	}
+	paths, err := filepath.Glob(filepath.Join(repoDir, "*.report.json"))
+	if err != nil || len(paths) != 1 || !strings.Contains(stderr, "falling back") || !strings.Contains(stderr, paths[0]) {
+		t.Fatalf("fallback did not save report: %v, %v\n%s", paths, err, stderr)
+	}
+}
 
 func reportMaterialTestRepo(t *testing.T) string {
 	t.Helper()
@@ -147,7 +189,7 @@ func TestReviewE2E_ReportFindingAndNativeJSONAreIndependent(t *testing.T) {
 	}
 }
 
-func TestReviewE2E_ReportSaveFailurePreservesNativeOutput(t *testing.T) {
+func TestReviewE2E_ReportCollisionPreservesNativeOutput(t *testing.T) {
 	for _, mode := range reportReviewModes {
 		t.Run(mode.name, func(t *testing.T) {
 			repoDir := reportReviewRepoForMode(t, mode)
@@ -159,8 +201,11 @@ func TestReviewE2E_ReportSaveFailurePreservesNativeOutput(t *testing.T) {
 			}
 			args := reportReviewArgs(repoDir, nativePath, reportPath, mode)
 			_, stderr, err := runReportReview(t, args...)
-			if err == nil || !strings.Contains(err.Error(), "save report material") {
-				t.Fatalf("review error = %v, want save report material failure\nstderr: %s", err, stderr)
+			if err != nil {
+				t.Fatalf("review error = %v\nstderr: %s", err, stderr)
+			}
+			if _, err := os.Stat(strings.TrimSuffix(reportPath, ".report.json") + "(1).report.json"); err != nil {
+				t.Fatal(err)
 			}
 			native := readNativeReview(t, nativePath)
 			if native.Status != string(session.StateComplete) {
@@ -182,7 +227,7 @@ func TestReviewE2E_ReportAndNativeOutputConflictPreservesExistingFile(t *testing
 	if err := os.WriteFile(sharedPath, []byte("keep native output"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, stderr, err := runReportReview(t, "--repo", repoDir, "--commit", "HEAD", "--format", "json", "--output", sharedPath, "--report", sharedPath)
+	_, stderr, err := runReportReview(t, "--repo", repoDir, "--commit", "HEAD", "--format", "json", "--output", sharedPath, "--report", strings.TrimSuffix(sharedPath, ".json")+".vue")
 	if err == nil || !strings.Contains(err.Error(), "conflicts with --output") {
 		t.Fatalf("review error = %v, want output path conflict\nstderr: %s", err, stderr)
 	}

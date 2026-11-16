@@ -129,9 +129,21 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 		return err
 	}
 	opts.knowledgeBase = base
-	if opts.reportEnabled && opts.reportPath != "" {
-		// 必须在原生输出文件打开前检查，避免重合路径截断已有文件。 // allow-non-english: explains output path check ordering
-		conflict, err := report.PathsConflict(opts.outputPath, opts.reportPath)
+	contentRef, _ := tool.ParseReviewMode(opts.from, opts.to, opts.commit).RefValue(opts.to, opts.commit)
+	cc, err := loadCommonContext(opts.repoDir, opts.rulePath, contentRef, opts.maxTools, opts.maxGitProcs, true)
+	if err != nil {
+		return err
+	}
+	startTime := time.Now()
+	reportTarget, defaultTarget := "", ""
+	if opts.reportEnabled {
+		defaultTarget = defaultReportPath(cc.RepoDir, requestedReportScope(opts), startTime)
+		reportTarget, err = prepareReportTarget(opts.reportPath, defaultTarget)
+		if err != nil {
+			return fmt.Errorf("prepare --report path: %w", err)
+		}
+		// 归一化后的路径也必须在打开原生输出前检查。 // allow-non-english: explains output path check ordering
+		conflict, err := report.PathsConflict(opts.outputPath, reportTarget)
 		if err != nil {
 			return fmt.Errorf("check --report path: %w", err)
 		}
@@ -160,11 +172,6 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 		}
 	}()
 
-	contentRef, _ := tool.ParseReviewMode(opts.from, opts.to, opts.commit).RefValue(opts.to, opts.commit)
-	cc, err := loadCommonContext(opts.repoDir, opts.rulePath, contentRef, opts.maxTools, opts.maxGitProcs, true)
-	if err != nil {
-		return err
-	}
 	applyCLIExcludes(cc, splitPaths(opts.excludes))
 
 	// Security (#112): reject ref-option injection before any git invocation.
@@ -293,21 +300,6 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 			fmt.Fprintf(os.Stderr, "[ocr] TraceID: %s\n", traceID)
 		}
 	}
-	startTime := time.Now()
-	reportTarget := ""
-	if opts.reportEnabled {
-		reportTarget = opts.reportPath
-		if reportTarget == "" {
-			reportTarget = defaultReportPath(cc.RepoDir, requestedReportScope(opts), startTime)
-		}
-		conflict, conflictErr := report.PathsConflict(opts.outputPath, reportTarget)
-		if conflictErr != nil {
-			return fmt.Errorf("check --report path: %w", conflictErr)
-		}
-		if conflict {
-			return fmt.Errorf("--report path conflicts with --output path")
-		}
-	}
 	var snapshotCapture []workspaceSnapshotCapture
 	if opts.reportEnabled && reviewModeFromOptions(opts) == session.ReviewModeWorkspace {
 		snapshotCtx, snapshotCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -377,8 +369,8 @@ func executeReviewContext(ctx context.Context, opts reviewOptions) (retErr error
 		material, buildErr := buildReportMaterial(manifest, cc.RepoDir, resolvedComments, startTime, completedAt, rt.Provider, rt.Model, ag.ToolFailures(), cc.GitRunner, materialOptions)
 		if buildErr != nil {
 			materialErr = fmt.Errorf("generate report material: %w", buildErr)
-		} else if _, saveErr := report.WriteMaterial(reportTarget, opts.reportPath == "", material); saveErr != nil {
-			materialErr = fmt.Errorf("save report material: %w", saveErr)
+		} else {
+			materialErr = saveReportMaterial(reportTarget, defaultTarget, opts.outputPath, material)
 		}
 	}
 	if resultErr != nil {

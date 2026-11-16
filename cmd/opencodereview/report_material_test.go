@@ -4,7 +4,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,103 @@ import (
 	"github.com/alibaba/open-code-review/internal/report"
 	"github.com/alibaba/open-code-review/internal/session"
 )
+
+func TestPrepareReportTarget(t *testing.T) {
+	for _, name := range []string{"directory", "new_directory", "wrong_suffix", "no_suffix", "json", "invalid_parent", "invalid_name", "reserved_name"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			fallback := filepath.Join(dir, "default.report.json")
+			requested := filepath.Join(dir, "reports", "custom.vue")
+			want := filepath.Join(dir, "reports", "custom.json")
+			switch name {
+			case "directory":
+				requested = filepath.Join(dir, "reports.vue")
+				if err := os.Mkdir(requested, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				want = filepath.Join(requested, filepath.Base(fallback))
+			case "new_directory":
+				requested = filepath.Join(dir, "new", "reports") + string(os.PathSeparator)
+				want = filepath.Join(requested, filepath.Base(fallback))
+			case "no_suffix":
+				requested = filepath.Join(dir, "custom")
+				want = requested + ".json"
+			case "json":
+				requested = filepath.Join(dir, "custom.JSON")
+				want = requested
+			case "invalid_parent":
+				if err := os.WriteFile(filepath.Join(dir, "reports"), []byte("keep"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				want = fallback
+			case "invalid_name":
+				requested = filepath.Join(dir, "bad\x00.json")
+				want = fallback
+			case "reserved_name":
+				if runtime.GOOS != "windows" {
+					t.Skip("Windows device name")
+				}
+				requested = filepath.Join(dir, "CON.json")
+				want = fallback
+			}
+			var got string
+			var err error
+			stderr := captureStderr(t, func() { got, err = prepareReportTarget(requested, fallback) })
+			if err != nil || got != want {
+				t.Fatalf("target=%q error=%v, want %q", got, err, want)
+			}
+			if want == fallback && !strings.Contains(stderr, "falling back") {
+				t.Fatalf("missing fallback warning: %s", stderr)
+			}
+			if _, err := os.Stat(filepath.Dir(want)); err != nil {
+				t.Fatal(err)
+			}
+			entries, err := os.ReadDir(filepath.Dir(want))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if strings.Contains(entry.Name(), "ocr-probe") {
+					t.Fatalf("probe leaked: %s", entry.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestPrepareReportTargetRejectsUnusableDefault(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	if err := os.WriteFile(blocker, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareReportTarget("", filepath.Join(blocker, "report.json")); err == nil {
+		t.Fatal("an unusable default must fail before review")
+	}
+}
+
+func TestSaveReportMaterialFallsBackAfterDestinationChanges(t *testing.T) {
+	dir := t.TempDir()
+	fallback := filepath.Join(t.TempDir(), "default.report.json")
+	target := filepath.Join(dir, "report.json")
+	if err := checkReportTarget(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	stderr := captureStderr(t, func() { err = saveReportMaterial(target, fallback, "", reportTestMaterial(false)) })
+	if err != nil || !strings.Contains(stderr, "falling back") {
+		t.Fatalf("save error=%v\n%s", err, stderr)
+	}
+	if _, err := os.Stat(fallback); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestParseReviewFlagsOptionalReportPath(t *testing.T) {
 	cases := []struct {

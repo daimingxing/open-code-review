@@ -68,6 +68,8 @@ ocr review --repo "E:\代码仓库" --from main --to feature/example --backgroun
 
 其他内置工具包括 `file_find`、`code_search`、`file_read_diff`、`code_comment` 和 `task_done`。它们支持上下文、差异、评论及任务完成，不提供任意本机文件访问，也不自动扩大可评论的代码范围。
 
+2026-11-16，本地 `feature/review-output-safety`（基于 `878bd8f`）修复搜索边界：选中文件只决定审查对象，`code_search` 为核对调用关系仍可搜索目标版本的其他文件。默认排除配置加入 SVG，搜索在 Git 查询阶段单独排除 SVG 正文（不区分后缀大小写），保留代码中的资源引用。返回内容最多 64 KiB，超限提示缩小搜索范围；知识搜索同步记录截断状态。已用工作区、提交版本及普通目录的受控样例验证，未重跑真实模型审查。来源：[搜索实现](../../internal/tool/code_search.go)、[默认排除配置](../../internal/config/allowlist/default_exclude_patterns.json)。
+
 本项目的 `review --knowledge-dir` 仅支持一个显式目录，相对路径按命令调用目录解析。模型通过 `knowledge_bases` 任务区块获得实际目录；查找及搜索可传 `directory` 定向到知识目录或其中的子目录，读取使用返回路径及原有行号参数。知识搜索支持 glob、目录前缀和 `:(exclude)`，源码搜索保留原有 Git pathspec。知识权限不会从背景或规则推导，也不会自动打开文件 MCP；有效空目录允许使用，无效目录在模型调用前报错。背景文件的相对路径仍按目标仓库解析，跨仓库调用建议提供绝对路径。
 
 会话和报告材料记录实际访问、局部性、截断及失败；搜索记录匹配文件和行号，读取记录源文件标识，不将读取等同于正确应用。资料变化检查仅针对实际读取文件，不建立整个目录快照；恢复时配置或已读资料不兼容会拒绝复用。共享压缩继续保留任务初始知识区块，不增加知识专用阈值。功能验证及限制见[原生知识库复测](../retests/knowledge-access/README.md)。

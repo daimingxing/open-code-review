@@ -18,6 +18,7 @@ import (
 const (
 	gitGrepMaxCount = 100
 	gitGrepTimeout  = 10 * time.Second
+	searchMaxBytes  = 64 * 1024
 )
 
 // CodeSearchProvider performs text search across the repository using git grep.
@@ -135,6 +136,8 @@ func (p *CodeSearchProvider) buildGrepArgs(searchText string, caseSensitive bool
 
 	cmdArgs = append(cmdArgs, "--")
 	cmdArgs = append(cmdArgs, pathspec...)
+	// 搜索会访问审查范围外的上下文，也必须排除图片正文。 // allow-non-english: explains independent search exclusions
+	cmdArgs = append(cmdArgs, ":(glob,icase,exclude)**/*.svg")
 
 	return cmdArgs
 }
@@ -277,7 +280,14 @@ func (p *CodeSearchProvider) gitGrep(ctx context.Context, searchText string, cas
 		matches := fileMatches[path]
 		sb.WriteString(fmt.Sprintf("File: %s\nMatch lines: %d\n", path, len(matches)))
 		for _, m := range matches {
-			sb.WriteString(fmt.Sprintf("%d|%s\n", m.lineNum, m.content))
+			fmt.Fprintf(&sb, "%d|", m.lineNum)
+			// 条数限制无法约束压缩文件的超长单行。 // allow-non-english: explains byte budget
+			remaining := max(0, searchMaxBytes-sb.Len())
+			sb.WriteString(m.content[:min(len(m.content), remaining)])
+			if sb.Len() >= searchMaxBytes {
+				return limitSearchOutput(sb.String()), nil
+			}
+			sb.WriteByte('\n')
 		}
 		sb.WriteString("\n")
 	}
@@ -286,7 +296,15 @@ func (p *CodeSearchProvider) gitGrep(ctx context.Context, searchText string, cas
 		sb.WriteString(fmt.Sprintf("Warning: %s\n", strings.TrimSpace(errStr)))
 	}
 
-	return sb.String(), nil
+	return limitSearchOutput(sb.String()), nil
+}
+
+func limitSearchOutput(result string) string {
+	if len(result) < searchMaxBytes {
+		return result
+	}
+	const notice = "\nNote: Search output truncated at 65536 bytes. Narrow file_patterns or use a more specific search_text.\n"
+	return strings.ToValidUTF8(result[:searchMaxBytes-len(notice)], "") + notice
 }
 
 func trimGitUsage(stderr string, exitCode int) string {

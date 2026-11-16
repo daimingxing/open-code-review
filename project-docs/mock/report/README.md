@@ -44,16 +44,60 @@ $cli = (Resolve-Path .\dist\opencodereview.exe).Path
 
 不要把真实密钥写入仓库或提交到 Git。
 
-## 2.1. 知识接入迁移状态
+## 2.1. 指定知识库
 
-旧文件知识 MCP 专用采集已清理，无需安装 @modelcontextprotocol/server-filesystem。新的 --knowledge-dir 尚未实现；当前可继续验收审查与报告，知识来源标记为未采集，不代表已完成知识核对。计划中的知识验收及可复用背景见[知识回归入口](../../retests/knowledge-access/README.md)。
+本项目已实现 `review --knowledge-dir`，由原生工具按需读取指定目录中的磁盘资料，无需安装文件 MCP。`rules-and-context.md` 是[使用说明](../../open-code-review/rules-and-context.md)，不是知识库配置文件；真正授权访问的是命令中的 `--knowledge-dir`。只在规则或背景里写知识路径不会开放访问。
+
+以下先用后端仓库；前后端知识库地址统一维护在[审查资源](../../review-resources.md)。命令继续使用第 1 步的 `$cli`：
+
+```powershell
+$repo = 'D:\WorkPlace\longruan_codeReview\jk'
+$knowledgeDir = Join-Path $repo '.ai_knowledge'
+Get-Item -LiteralPath $knowledgeDir
+```
+
+每次审查只能指定一个知识目录，建议使用绝对路径。目录内可以包含未跟踪或被 Git 忽略的资料，不要求资料存在于被审查的提交中；指定目录中的知识文件不作为代码审查目标。目录无效会在模型调用前报错。授权不保证模型一定读取或正确应用资料，验收时还需核对实际访问记录。
+
+## 2.2. 指定审查规则
+
+`--rule` 接受规则 JSON，不直接接受 Skill 目录或任意 Markdown。下面在临时目录生成一份前后端均可使用的最小规则；实际使用时将规则正文换成项目标准，或将 `$reviewRule` 指向已有规则 JSON：
+
+```powershell
+$reviewRule = Join-Path $env:TEMP 'ocr-acceptance-rule.json'
+@'
+{
+  "rules": [
+    {
+      "path": "**/*",
+      "rule": "仅审查本次变更引入或直接暴露的问题，结论使用中文。涉及项目框架或业务契约时，先查阅已授权知识库的索引或目录，再按需读取相关文档，并结合目标版本源码取证。资料缺失或依据不足时说明限制，不猜测内部契约；不默认遍历全部知识正文。",
+      "merge_system_rule": true
+    }
+  ]
+}
+'@ | Set-Content -LiteralPath $reviewRule -Encoding utf8
+```
+
+`path` 决定哪些代码使用这条规则，不限定审查文件范围。`merge_system_rule: true` 保留内置审查标准并合并本条要求；不设置时，自定义规则默认替换内置规则。需要维护较长规则时，可将 `rule` 改为相对于 JSON 所在目录的 `.md` 文件路径；正文中的链接不会自动展开，也不会执行 Skill 脚本。详细约束见[规则加载](../../open-code-review/rules-and-context.md#规则加载)。
+
+本次需求可另外用 `--background` 或 `--background-file` 提供；它们不替代审查规则或知识授权。前端可复用的背景及适用边界见[审查资源](../../review-resources.md)。
+
+## 2.3. 调用模型前检查
+
+先确认示例代码命中自定义规则，再预览当前提交的审查范围；以下两条命令不调用模型：
+
+```powershell
+& $cli rules check --repo $repo --rule $reviewRule 'jkdbms-sp/src/main/java/com/baosight/jkdbms/aj/ww/service/ServiceAJWW02.java'
+& $cli review --repo $repo --commit HEAD --knowledge-dir $knowledgeDir --rule $reviewRule --preview
+```
+
+规则检查应显示来源为 `Custom (--rule)`，并包含自定义正文与内置标准。预览范围合理后再运行下一步；首次验收优先选单提交或少量文件的分支范围，避免直接对数百个文件发起完整审查。
 
 ## 3. 真实生成报告材料
 
-把 `--repo` 换成你要审查的 Git 仓库。下面审查该仓库当前最新提交；这是真实模型调用，不是仓库里的测试。
+下面沿用第 2 步准备的仓库、知识目录和规则，审查当前最新提交；这是真实模型调用，不是仓库里的测试。
 
 ```powershell
-& $cli review --repo 'D:\WorkPlace\your-project' --commit HEAD --report
+& $cli review --repo $repo --commit HEAD --knowledge-dir $knowledgeDir --rule $reviewRule --report
 ```
 
 `--report` 不带路径时，材料会写到被审查仓库根目录，文件名类似 `your-project__commit-HEAD__20261010-153000.report.json`。命令结束时会给出这份文件的路径，下一步直接用它。
@@ -61,14 +105,21 @@ $cli = (Resolve-Path .\dist\opencodereview.exe).Path
 要自己指定材料位置：
 
 ```powershell
-& $cli review --repo 'D:\WorkPlace\your-project' --commit HEAD --report 'D:\WorkPlace\your-project\review.report.json'
+& $cli review --repo $repo --commit HEAD --knowledge-dir $knowledgeDir --rule $reviewRule --report (Join-Path $repo 'review.report.json')
 ```
 
-比较两个分支时改用 `--from` / `--to`，不要和 `--commit` 一起用：
+也可以把 `--report` 指向已有目录，程序会在目录内自动命名。新目录请以路径分隔符结尾。文件名的非 JSON 后缀会替换为 `.json`，重名自动编号，不覆盖已有文件。程序在模型调用前检查保存位置；指定位置不可用时告警并回退到仓库根目录，成功后打印实际文件路径。
+
+比较两个分支时改用 `--from` / `--to`，不要和 `--commit` 一起用。以下是资源索引中的前端小样本，先预览，再按需执行真实审查；切换仓库时同步切换知识目录：
 
 ```powershell
-& $cli review --repo 'D:\WorkPlace\your-project' --from main --to feature --report
+$repo = 'D:\WorkPlace\longruan_codeReview\jk_web'
+$knowledgeDir = Join-Path $repo '.ai_knowledge'
+& $cli review --repo $repo --from dev-1010 --to dev-1016 --knowledge-dir $knowledgeDir --rule $reviewRule --preview
+& $cli review --repo $repo --from dev-1010 --to dev-1016 --knowledge-dir $knowledgeDir --rule $reviewRule --report
 ```
+
+保存 JSON 成功不等于审查完整完成。检查 `review.status`、`coverage.completed/failed` 和 `limitations`：`partial` 表示仅部分完成，`task_done` 只表示某组某轮结束。知识访问事实在 `sections.knowledge_sources` 中，需区分查找、搜索和实际读取；未采集或未读取不能当作知识核对通过。完整验收应确认所有选中目标均有完成覆盖，并核对需要的知识是否实际读取。
 
 ## 4. 直接生成并查看 HTML
 

@@ -5,7 +5,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -68,6 +70,82 @@ func defaultReportPath(repoDir string, scope report.Scope, startedAt time.Time) 
 	scopeLabel = sanitizeReportLabel(scopeLabel, 64)
 	name := fmt.Sprintf("%s__%s__%s.report.json", repoLabel, scopeLabel, startedAt.Local().Format("20060102-150405"))
 	return filepath.Join(repoDir, name)
+}
+
+func prepareReportTarget(requested, defaultTarget string) (string, error) {
+	target, err := resolveReportTarget(requested, defaultTarget)
+	if err == nil {
+		err = checkReportTarget(target)
+	}
+	if err != nil && requested != "" {
+		fmt.Fprintf(os.Stderr, "[ocr] warning: --report %q: %v; falling back to %q\n", requested, err, defaultTarget)
+		target, err = prepareReportTarget("", defaultTarget)
+	}
+	return target, err
+}
+
+func resolveReportTarget(requested, defaultTarget string) (string, error) {
+	target := defaultTarget
+	if requested != "" {
+		info, err := os.Stat(requested)
+		if err != nil && !os.IsNotExist(err) {
+			return "", err
+		}
+		if (info != nil && info.IsDir()) || strings.HasSuffix(requested, "/") || strings.HasSuffix(requested, `\`) {
+			target = filepath.Join(requested, filepath.Base(defaultTarget))
+		} else {
+			target = requested
+			if !strings.EqualFold(filepath.Ext(target), ".json") {
+				target = strings.TrimSuffix(target, filepath.Ext(target)) + ".json"
+			}
+		}
+	}
+	return filepath.Abs(target)
+}
+
+func checkReportTarget(target string) error {
+	name := filepath.Base(target)
+	stem, _, _ := strings.Cut(name, ".")
+	if !filepath.IsLocal(name) || (stem != "" && !filepath.IsLocal(stem)) {
+		return fmt.Errorf("invalid report file name %q", name)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+	// 启动前验证与最终发布相同的创建和硬链接能力，不占用最终文件名。 // allow-non-english: explains preflight publishing probe
+	temp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".ocr-probe-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temp.Name())
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	probe := temp.Name() + ".link"
+	if err := os.Link(temp.Name(), probe); err != nil {
+		return err
+	}
+	return os.Remove(probe)
+}
+
+func saveReportMaterial(target, defaultTarget, nativeOutput string, material report.Material) error {
+	written, err := report.WriteMaterial(target, true, material)
+	if err != nil && target != defaultTarget {
+		conflict, conflictErr := report.PathsConflict(nativeOutput, defaultTarget)
+		if conflictErr != nil || conflict {
+			return fmt.Errorf("save report material: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[ocr] warning: save report material at %q: %v; falling back to %q\n", target, err, defaultTarget)
+		if prepareErr := checkReportTarget(defaultTarget); prepareErr != nil {
+			return fmt.Errorf("save report material: %w", errors.Join(err, prepareErr))
+		}
+		written, err = report.WriteMaterial(defaultTarget, true, material)
+	}
+	if err != nil {
+		return fmt.Errorf("save report material: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "[ocr] Report material: %s\n", written)
+	return nil
 }
 
 func requestedReportScope(opts reviewOptions) report.Scope {

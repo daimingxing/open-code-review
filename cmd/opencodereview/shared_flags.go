@@ -215,7 +215,7 @@ func registerReviewFlags(cmd *cobra.Command, opts *reviewOptions) {
 	addExcludeFlag(cmd, &opts.excludes)
 	addOutputFlags(cmd, &opts.outputFormat, &opts.audience)
 	addOutputPathFlag(cmd, &opts.outputPath)
-	cmd.Flags().StringVar(&opts.reportPath, "report", "", "write versioned report material JSON (omit the path to save under the repository root)")
+	cmd.Flags().StringVar(&opts.reportPath, "report", "", "write report material JSON to a directory or file (.json enforced; omit the path to save under the repository root; unusable paths fall back there)")
 	cmd.Flags().Lookup("report").NoOptDefVal = bareReportValue
 	addConcurrencyFlags(cmd, &opts.concurrency, &opts.concurrentTaskTimeout, &opts.maxTools, &opts.maxGitProcs, &opts.maxTokens, &opts.maxTokensBudget)
 	addBackgroundFlags(cmd, &opts.background, &opts.backgroundFile)

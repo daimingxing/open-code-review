@@ -153,7 +153,7 @@ func (p *CodeSearchProvider) searchKnowledge(ctx context.Context, root, text str
 		if result != "" {
 			a.ResultSHA256 = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(result)))
 		}
-		a.Truncated = strings.Contains(result, "Results truncated") || strings.Contains(result, "Note: Showing")
+		a.Truncated = strings.Contains(result, "Results truncated") || strings.Contains(result, "Note: Showing") || strings.Contains(result, "Search output truncated")
 		p.FileReader.Knowledge.Record(a)
 	}()
 	files, err := p.FileReader.Knowledge.Files(ctx, root)
@@ -196,5 +196,5 @@ func (p *CodeSearchProvider) searchKnowledge(ctx context.Context, root, text str
 			}
 		}
 	}
-	return strings.Join(lines, "\n"), nil
+	return limitSearchOutput(strings.Join(lines, "\n")), nil
 }

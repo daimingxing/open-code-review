@@ -1,4 +1,5 @@
 [
+  "**/*.svg",
   "**/*_test.go",
   "**/src/test/java/**/*.java",
   "**/src/test/**/*.{kt,kts}",

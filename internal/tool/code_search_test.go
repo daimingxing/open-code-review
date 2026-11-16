@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/alibaba/open-code-review/internal/gitcmd"
 )
@@ -162,6 +163,55 @@ func TestGitGrep_WorkspaceMode_NoMatch(t *testing.T) {
 	}
 	if result != "No matches found" {
 		t.Errorf("expected 'No matches found', got: %s", result)
+	}
+}
+
+func TestGitGrep_SVGAndOutputBudget(t *testing.T) {
+	for _, mode := range []string{"workspace", "commit", "plain_directory"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			if mode != "plain_directory" {
+				dir = setupTestRepo(t)
+			}
+			for _, name := range []string{"root.svg", "nested/image.SVG", "source.ts"} {
+				full := filepath.Join(dir, name)
+				if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				content := "svg_needle"
+				if name == "source.ts" {
+					content = "const icon = 'root.svg';\nlarge_needle" + strings.Repeat("\u4e2d", 100000)
+				}
+				if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fr := &FileReader{RepoDir: dir, Mode: ModeWorkspace}
+			if mode == "commit" {
+				for _, args := range [][]string{{"add", "."}, {"commit", "-m", "search fixtures"}} {
+					cmd := exec.Command("git", args...)
+					cmd.Dir = dir
+					if out, err := cmd.CombinedOutput(); err != nil {
+						t.Fatalf("git: %v %s", err, out)
+					}
+				}
+				fr.Ref = getHeadCommit(t, dir)
+				fr.Runner = gitcmd.New(1)
+			}
+			p := NewCodeSearch(fr)
+			got, err := p.gitGrep(context.Background(), "svg_needle", false, false, nil)
+			if err != nil || got != "No matches found" {
+				t.Fatalf("SVG body entered search: %.200s, %v", got, err)
+			}
+			got, err = p.gitGrep(context.Background(), "root.svg", false, false, nil)
+			if err != nil || !strings.Contains(got, "source.ts") {
+				t.Fatalf("SVG references must remain searchable: %s, %v", got, err)
+			}
+			got, err = p.gitGrep(context.Background(), "large_needle", false, false, nil)
+			if err != nil || len(got) > 64*1024 || !utf8.ValidString(got) || !strings.Contains(got, "Narrow file_patterns") {
+				t.Fatalf("unbounded or invalid search result: %d bytes, error %v", len(got), err)
+			}
+		})
 	}
 }
 

@@ -231,6 +231,8 @@ func TestIsExcludedPath(t *testing.T) {
 		path string
 		want bool
 	}{
+		{"svg root", "icon.svg", true},
+		{"svg nested uppercase", "assets/ICON.SVG", true},
 		// Go test files
 		{"go test in subdir", "foo/bar_test.go", true},
 		{"go test at root", "bar_test.go", true},
